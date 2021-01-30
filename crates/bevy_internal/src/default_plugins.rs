@@ -42,6 +42,9 @@ impl PluginGroup for DefaultPlugins {
 
         #[cfg(feature = "bevy_wgpu")]
         group.add(bevy_wgpu::WgpuPlugin::default());
+
+        #[cfg(feature = "bevy_vulkan")]
+        group.add(bevy_vulkan::VulkanPlugin::default());
     }
 }
 

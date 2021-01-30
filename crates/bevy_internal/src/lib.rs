@@ -134,6 +134,11 @@ pub mod wgpu {
     pub use bevy_wgpu::*;
 }
 
+#[cfg(feature = "bevy_vulkan")]
+pub mod vulkan {
+    pub use bevy_vulkan::*;
+}
+
 #[cfg(feature = "bevy_dynamic_plugin")]
 pub mod dynamic_plugin {
     pub use bevy_dynamic_plugin::*;

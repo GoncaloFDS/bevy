@@ -6,6 +6,7 @@ use bevy_app::{Events, ManualEventReader};
 use bevy_ecs::world::World;
 use bevy_window::{WindowCreated, WindowId, WindowResized, Windows};
 use std::borrow::Cow;
+use bevy_utils::tracing::*;
 
 pub struct WindowSwapChainNode {
     window_id: WindowId,
@@ -41,6 +42,7 @@ impl Node for WindowSwapChainNode {
         _input: &ResourceSlots,
         output: &mut ResourceSlots,
     ) {
+        debug!("request new swapchain");
         const WINDOW_TEXTURE: usize = 0;
         let window_created_events = world.get_resource::<Events<WindowCreated>>().unwrap();
         let window_resized_events = world.get_resource::<Events<WindowResized>>().unwrap();
