@@ -4,7 +4,6 @@ use bevy_render::{
     renderer::{BufferId, RenderContext, RenderResourceBindings, RenderResourceContext, TextureId},
     texture::Extent3d,
 };
-use bevy_utils::tracing::*;
 
 pub struct VulkanRenderContext {
     // pub device: Arc<Option<ash::Device>>,

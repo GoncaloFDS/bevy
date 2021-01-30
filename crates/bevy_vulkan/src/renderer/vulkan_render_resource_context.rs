@@ -11,8 +11,8 @@ use bevy_asset::{Assets, Handle, HandleUntyped};
 use bevy_render::{
     pipeline::{BindGroupDescriptorId, PipelineDescriptor},
     renderer::{
-        BindGroup, BufferId, BufferInfo, RenderResourceContext, RenderResourceId, SamplerId,
-        TextureId,
+        BindGroup, BufferId, BufferInfo, BufferMapMode, RenderResourceContext, RenderResourceId,
+        SamplerId, TextureId,
     },
     shader::{glsl_to_spirv, Shader, ShaderError, ShaderSource},
     texture::{SamplerDescriptor, TextureDescriptor},
@@ -27,7 +27,7 @@ use std::{
     ops::Range,
     sync::Arc,
 };
-use bevy_render::renderer::BufferMapMode;
+use std::borrow::Cow;
 
 #[derive(Clone, Copy, Default)]
 struct QueueFamiliesIndices {
@@ -59,6 +59,11 @@ pub struct VulkanRenderResourceContext {
     pub graphics_queue: Arc<RwLock<Option<vk::Queue>>>,
     pub present_queue: Arc<RwLock<Option<vk::Queue>>>,
 
+    pub swap_chain_images: Arc<RwLock<Vec<vk::Image>>>,
+    pub swap_chain_image_views: Arc<RwLock<Vec<vk::ImageView>>>,
+
+    pub shader_modules: Arc<RwLock<HashMap<Handle<Shader>, vk::ShaderModule>>>,
+
     queue_family_indices: Arc<RwLock<QueueFamiliesIndices>>,
 }
 
@@ -82,6 +87,9 @@ impl VulkanRenderResourceContext {
             graphics_queue: Arc::new(RwLock::new(None)),
             present_queue: Arc::new(RwLock::new(None)),
             queue_family_indices: Arc::new(RwLock::new(QueueFamiliesIndices::default())),
+            swap_chain_images: Arc::new(RwLock::new(vec![])),
+            swap_chain_image_views: Arc::new(RwLock::new(vec![])),
+            shader_modules: Arc::new(Default::default()),
         }
     }
 
@@ -115,6 +123,8 @@ impl VulkanRenderResourceContext {
     }
 
     fn try_next_swap_chain_texture(&self, window_id: bevy_window::WindowId) -> Option<TextureId> {
+        let mut window_swap_chains = self.window_swap_chains.write();
+        let mut swap_chain_outputs = self.swap_chain_images.write();
         Some(TextureId::new())
     }
 
@@ -395,6 +405,20 @@ impl RenderResourceContext for VulkanRenderResourceContext {
                 .create_swapchain(&swapchain_create_info, None)
                 .unwrap()
         };
+
+        let mut swap_chain_images = self.swap_chain_images.write();
+        let mut images = unsafe { swapchain_loader.get_swapchain_images(swapchain).unwrap() };
+        swap_chain_images.append(&mut images);
+        let mut image_views = create_swapchain_image_views(
+            self.device.read().as_ref().unwrap(),
+            &swap_chain_images,
+            properties.format.format,
+        );
+        let mut swap_chain_image_views = self.swap_chain_image_views.write();
+        swap_chain_image_views.append(&mut image_views);
+        println!("{:?}", swap_chain_images);
+        println!("{:?}", swap_chain_image_views);
+        println!("{:?}", image_views);
         info!("create swap chain");
     }
 
@@ -435,23 +459,41 @@ impl RenderResourceContext for VulkanRenderResourceContext {
     ) {
     }
 
-    fn read_mapped_buffer(&self, id: BufferId, range: Range<u64>, read: &dyn Fn(&[u8], &dyn RenderResourceContext)) {
+    fn read_mapped_buffer(
+        &self,
+        id: BufferId,
+        range: Range<u64>,
+        read: &dyn Fn(&[u8], &dyn RenderResourceContext),
+    ) {
     }
 
-    fn map_buffer(&self, id: BufferId, mode: BufferMapMode) {
-    }
+    fn map_buffer(&self, id: BufferId, mode: BufferMapMode) {}
 
-    fn unmap_buffer(&self, id: BufferId) {
-    }
+    fn unmap_buffer(&self, id: BufferId) {}
 
     fn create_buffer_with_data(&self, _buffer_info: BufferInfo, _data: &[u8]) -> BufferId {
         let buffer = BufferId::new();
         buffer
     }
 
-    fn create_shader_module(&self, _shader_handle: &Handle<Shader>, _shaders: &Assets<Shader>) {}
+    fn create_shader_module(&self, shader_handle: &Handle<Shader>, shaders: &Assets<Shader>) {
+        if self.shader_modules.read().get(&shader_handle).is_some() {
+            return;
+        }
+        let shader = shaders.get(shader_handle).unwrap();
+        self.create_shader_module_from_source(shader_handle, shader)
+    }
 
-    fn create_shader_module_from_source(&self, _shader_handle: &Handle<Shader>, _shader: &Shader) {}
+    fn create_shader_module_from_source(&self, shader_handle: &Handle<Shader>, shader: &Shader) {
+        let mut shader_modules = self.shader_modules.write();
+        let mut spirv: Cow<[u32]> = shader.get_spirv(None).unwrap().into();
+        let create_info = vk::ShaderModuleCreateInfo::builder().code(&spirv).build();
+        let shader_module = unsafe {
+            self.device.read().as_ref().unwrap().create_shader_module(&create_info, None).unwrap()
+        };
+        shader_modules.insert(shader_handle.clone_weak(), shader_module);
+        println!("{:?}", shader);
+    }
 
     fn get_specialized_shader(
         &self,
@@ -533,4 +575,35 @@ impl RenderResourceContext for VulkanRenderResourceContext {
     fn clear_bind_groups(&self) {}
 
     fn remove_stale_bind_groups(&self) {}
+}
+
+fn create_swapchain_image_views(
+    device: &Device,
+    swapchain_images: &[vk::Image],
+    swapchain_format: vk::Format,
+) -> Vec<vk::ImageView> {
+    swapchain_images
+        .into_iter()
+        .map(|image| {
+            let create_info = vk::ImageViewCreateInfo::builder()
+                .image(*image)
+                .view_type(vk::ImageViewType::TYPE_2D)
+                .format(swapchain_format)
+                .components(vk::ComponentMapping {
+                    r: vk::ComponentSwizzle::IDENTITY,
+                    g: vk::ComponentSwizzle::IDENTITY,
+                    b: vk::ComponentSwizzle::IDENTITY,
+                    a: vk::ComponentSwizzle::IDENTITY,
+                })
+                .subresource_range(vk::ImageSubresourceRange {
+                    aspect_mask: vk::ImageAspectFlags::COLOR,
+                    base_mip_level: 0,
+                    level_count: 1,
+                    base_array_layer: 0,
+                    layer_count: 1,
+                })
+                .build();
+            unsafe { device.create_image_view(&create_info, None).unwrap() }
+        })
+        .collect::<Vec<_>>()
 }

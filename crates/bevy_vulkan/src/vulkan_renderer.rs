@@ -1,8 +1,4 @@
 use crate::renderer::*;
-use ash::{
-    version::{DeviceV1_0, InstanceV1_0},
-    vk, Device, Instance,
-};
 use bevy_app::prelude::*;
 use bevy_ecs::{Resources, World};
 use bevy_render::{
@@ -11,7 +7,6 @@ use bevy_render::{
 };
 use bevy_utils::tracing::*;
 use bevy_window::{WindowCreated, WindowResized, Windows};
-use std::ffi::CStr;
 use bevy_app::ManualEventReader;
 
 pub struct VulkanRenderer {
