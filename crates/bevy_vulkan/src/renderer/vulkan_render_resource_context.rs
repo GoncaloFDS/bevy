@@ -49,32 +49,33 @@ pub fn required_extension_names() -> Vec<*const i8> {
 
 #[derive(Clone)]
 pub struct VulkanRenderResourceContext {
-    pub entry: Arc<ash::Entry>,
-    pub device: Arc<RwLock<Option<ash::Device>>>,
-    pub instance: Arc<ash::Instance>,
-    pub surface_loader: Arc<Surface>,
+    entry: Arc<ash::Entry>,
+    device: Arc<RwLock<Option<ash::Device>>>,
+    instance: Arc<ash::Instance>,
+    surface_loader: Arc<Surface>,
 
-    pub physical_device: Arc<RwLock<Option<vk::PhysicalDevice>>>,
+    physical_device: Arc<RwLock<Option<vk::PhysicalDevice>>>,
 
-    pub debug_utils: Option<(DebugUtils, vk::DebugUtilsMessengerEXT)>,
+    debug_utils: Option<(DebugUtils, vk::DebugUtilsMessengerEXT)>,
 
-    pub window_surfaces: Arc<RwLock<HashMap<WindowId, vk::SurfaceKHR>>>,
-    pub window_swap_chains: Arc<RwLock<HashMap<WindowId, vk::SwapchainKHR>>>,
-    pub window_swap_chain_properties: Arc<RwLock<HashMap<WindowId, SwapchainProperties>>>,
-    pub swapchain_loader: Option<Swapchain>,
+    window_surfaces: Arc<RwLock<HashMap<WindowId, vk::SurfaceKHR>>>,
+    window_swap_chains: Arc<RwLock<HashMap<WindowId, vk::SwapchainKHR>>>,
+    window_swap_chain_properties: Arc<RwLock<HashMap<WindowId, SwapchainProperties>>>,
+    swapchain_loader: Option<Swapchain>,
     pub graphics_queue: Arc<RwLock<Option<vk::Queue>>>,
-    pub present_queue: Arc<RwLock<Option<vk::Queue>>>,
+    present_queue: Arc<RwLock<Option<vk::Queue>>>,
 
-    pub swap_chain_images: Arc<RwLock<Vec<vk::Image>>>,
-    pub swap_chain_image_views: Arc<RwLock<Vec<vk::ImageView>>>,
+    swap_chain_images: Arc<RwLock<Vec<vk::Image>>>,
+    swap_chain_image_views: Arc<RwLock<Vec<vk::ImageView>>>,
 
-    pub shader_modules: Arc<RwLock<HashMap<Handle<Shader>, vk::ShaderModule>>>,
+    shader_modules: Arc<RwLock<HashMap<Handle<Shader>, vk::ShaderModule>>>,
 
-    pub render_pass: Arc<RwLock<vk::RenderPass>>,
-    pub render_pipeline_layouts:
-        Arc<RwLock<HashMap<Handle<PipelineDescriptor>, vk::PipelineLayout>>>,
-    pub render_pipelines: Arc<RwLock<HashMap<Handle<PipelineDescriptor>, vk::Pipeline>>>,
+    render_pass: Arc<RwLock<vk::RenderPass>>,
+    render_pipeline_layouts: Arc<RwLock<HashMap<Handle<PipelineDescriptor>, vk::PipelineLayout>>>,
+    render_pipelines: Arc<RwLock<HashMap<Handle<PipelineDescriptor>, vk::Pipeline>>>,
     queue_family_indices: Arc<RwLock<QueueFamiliesIndices>>,
+
+    swapchain_frame_buffers: Arc<RwLock<Vec<vk::Framebuffer>>>,
 }
 
 impl VulkanRenderResourceContext {
@@ -109,6 +110,7 @@ impl VulkanRenderResourceContext {
             render_pass: Arc::new(Default::default()),
             render_pipeline_layouts: Arc::new(Default::default()),
             render_pipelines: Arc::new(Default::default()),
+            swapchain_frame_buffers: Arc::new(Default::default()),
         }
     }
 
@@ -813,6 +815,15 @@ impl RenderResourceContext for VulkanRenderResourceContext {
         render_pipelines.insert(pipeline_handle.clone(), render_pipeline);
         let mut render_pipeline_layouts = self.render_pipeline_layouts.write();
         render_pipeline_layouts.insert(pipeline_handle, render_pipeline_layout);
+
+        // frame buffers
+        let mut swapchain_framebuffers = create_framebuffers(
+            self.device.read().as_ref().unwrap(),
+            &self.swap_chain_image_views.read(),
+            render_pass,
+            extent
+        );
+        self.swapchain_frame_buffers.write().append(&mut swapchain_framebuffers);
     }
 
     fn bind_group_descriptor_exists(
@@ -863,4 +874,26 @@ fn create_swapchain_image_views(
             unsafe { device.create_image_view(&create_info, None).unwrap() }
         })
         .collect::<Vec<_>>()
+}
+
+fn create_framebuffers(
+    device: &Device,
+    image_views: &[vk::ImageView],
+    render_pass: vk::RenderPass,
+    extent: vk::Extent2D,
+) -> Vec<vk::Framebuffer> {
+    image_views
+        .iter()
+        .map(|view| [*view])
+        .map(|attachments| {
+            let framebuffer_info = vk::FramebufferCreateInfo::builder()
+                .render_pass(render_pass)
+                .attachments(&attachments)
+                .width(extent.width)
+                .height(extent.height)
+                .layers(1)
+                .build();
+            unsafe { device.create_framebuffer(&framebuffer_info, None).unwrap() }
+        })
+        .collect()
 }
