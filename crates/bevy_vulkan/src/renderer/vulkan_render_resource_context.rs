@@ -1,11 +1,16 @@
-use crate::{debug::*, renderer::SwapchainSupportDetails};
+use crate::{
+    debug::*,
+    renderer::{SwapchainProperties, SwapchainSupportDetails},
+};
 use ash::{
     extensions::{
         ext::DebugUtils,
         khr::{Surface, Swapchain, Win32Surface},
     },
     version::{DeviceV1_0, EntryV1_0, InstanceV1_0},
-    vk, Device, Entry, Instance,
+    vk,
+    vk::PhysicalDevice,
+    Device, Entry, Instance,
 };
 use bevy_asset::{Assets, Handle, HandleUntyped};
 use bevy_render::{
@@ -15,19 +20,19 @@ use bevy_render::{
         SamplerId, TextureId,
     },
     shader::{glsl_to_spirv, Shader, ShaderError, ShaderSource},
-    texture::{SamplerDescriptor, TextureDescriptor},
+    texture::{SamplerDescriptor, TextureDescriptor, TextureFormat},
 };
 use bevy_utils::tracing::*;
 use bevy_window::{Window, WindowId};
 use bevy_winit::WinitWindows;
 use parking_lot::RwLock;
 use std::{
+    borrow::Cow,
     collections::HashMap,
     ffi::{CStr, CString},
     ops::Range,
     sync::Arc,
 };
-use std::borrow::Cow;
 
 #[derive(Clone, Copy, Default)]
 struct QueueFamiliesIndices {
@@ -55,6 +60,7 @@ pub struct VulkanRenderResourceContext {
 
     pub window_surfaces: Arc<RwLock<HashMap<WindowId, vk::SurfaceKHR>>>,
     pub window_swap_chains: Arc<RwLock<HashMap<WindowId, vk::SwapchainKHR>>>,
+    pub window_swap_chain_properties: Arc<RwLock<HashMap<WindowId, SwapchainProperties>>>,
     pub swapchain_loader: Option<Swapchain>,
     pub graphics_queue: Arc<RwLock<Option<vk::Queue>>>,
     pub present_queue: Arc<RwLock<Option<vk::Queue>>>,
@@ -64,25 +70,35 @@ pub struct VulkanRenderResourceContext {
 
     pub shader_modules: Arc<RwLock<HashMap<Handle<Shader>, vk::ShaderModule>>>,
 
+    pub render_pass: Arc<RwLock<vk::RenderPass>>,
+    pub render_pipeline_layouts:
+        Arc<RwLock<HashMap<Handle<PipelineDescriptor>, vk::PipelineLayout>>>,
+    pub render_pipelines: Arc<RwLock<HashMap<Handle<PipelineDescriptor>, vk::Pipeline>>>,
     queue_family_indices: Arc<RwLock<QueueFamiliesIndices>>,
 }
 
 impl VulkanRenderResourceContext {
     pub fn new() -> Self {
+        info!("Creating VulkanRenderResourceContext");
         let entry: Entry = ash::Entry::new().expect("Failed to create entry.");
         let instance = Self::create_instance(&entry);
         let surface_loader = Surface::new(&entry, &instance);
 
         let debug_utils = setup_debug_messenger(&entry, &instance);
+
+        let (physical_device, device) =
+            VulkanRenderResourceContext::create_default_devices(&instance);
+
         VulkanRenderResourceContext {
             entry: Arc::new(entry),
-            device: Arc::new(Default::default()),
+            device: Arc::new(RwLock::new(Some(device))),
             instance: Arc::new(instance),
             surface_loader: Arc::new(surface_loader),
-            physical_device: Arc::new(Default::default()),
+            physical_device: Arc::new(RwLock::new(Some(physical_device))),
             debug_utils,
             window_surfaces: Arc::new(Default::default()),
             window_swap_chains: Arc::new(Default::default()),
+            window_swap_chain_properties: Arc::new(Default::default()),
             swapchain_loader: None,
             graphics_queue: Arc::new(RwLock::new(None)),
             present_queue: Arc::new(RwLock::new(None)),
@@ -90,10 +106,56 @@ impl VulkanRenderResourceContext {
             swap_chain_images: Arc::new(RwLock::new(vec![])),
             swap_chain_image_views: Arc::new(RwLock::new(vec![])),
             shader_modules: Arc::new(Default::default()),
+            render_pass: Arc::new(Default::default()),
+            render_pipeline_layouts: Arc::new(Default::default()),
+            render_pipelines: Arc::new(Default::default()),
         }
     }
 
+    fn create_default_devices(instance: &Instance) -> (PhysicalDevice, Device) {
+        let physical_devices = unsafe { instance.enumerate_physical_devices().unwrap() };
+        let physical_device = physical_devices[0];
+        let props = unsafe { instance.get_physical_device_properties(physical_device) };
+        info!("Selected physical device: {:?}", unsafe {
+            CStr::from_ptr(props.device_name.as_ptr())
+        });
+
+        let device_extensions = Self::get_required_device_extensions();
+        let device_extension_ptrs = device_extensions
+            .iter()
+            .map(|ext| ext.as_ptr())
+            .collect::<Vec<_>>();
+
+        let device_features = vk::PhysicalDeviceFeatures::builder().build();
+
+        let (_layer_names, layer_names_ptrs) = get_layer_names_and_pointers();
+
+        let queue_create_infos = [vk::DeviceQueueCreateInfo::builder()
+            .queue_family_index(0)
+            .queue_priorities(&[1.0])
+            .build()];
+
+        let mut device_create_info_builder = vk::DeviceCreateInfo::builder()
+            .queue_create_infos(&queue_create_infos)
+            .enabled_extension_names(&device_extension_ptrs)
+            .enabled_features(&device_features);
+
+        if ENABLE_VALIDATION_LAYERS {
+            device_create_info_builder =
+                device_create_info_builder.enabled_layer_names(&layer_names_ptrs)
+        }
+        let device_create_info = device_create_info_builder.build();
+
+        let device = unsafe {
+            instance
+                .create_device(physical_device, &device_create_info, None)
+                .expect("Failed to create logical device")
+        };
+        (physical_device, device)
+    }
+
     pub fn create_window_surface(&self, window_id: WindowId, winit_windows: &WinitWindows) {
+        info!("Creating window");
         let winit_window = winit_windows.get_window(window_id).unwrap();
         let surface = unsafe {
             ash_window::create_surface(&*self.entry, &*self.instance, winit_window, None)
@@ -122,9 +184,9 @@ impl VulkanRenderResourceContext {
         *self.present_queue.write() = Some(present_queue);
     }
 
-    fn try_next_swap_chain_texture(&self, window_id: bevy_window::WindowId) -> Option<TextureId> {
-        let mut window_swap_chains = self.window_swap_chains.write();
-        let mut swap_chain_outputs = self.swap_chain_images.write();
+    fn try_next_swap_chain_texture(&self, _window_id: bevy_window::WindowId) -> Option<TextureId> {
+        // let mut window_swap_chains = self.window_swap_chains.write();
+        // let mut swap_chain_outputs = self.swap_chain_images.write();
         Some(TextureId::new())
     }
 
@@ -406,6 +468,13 @@ impl RenderResourceContext for VulkanRenderResourceContext {
                 .unwrap()
         };
 
+        self.window_swap_chain_properties
+            .write()
+            .insert(window.id(), properties);
+        self.window_swap_chains
+            .write()
+            .insert(window.id(), swapchain);
+
         let mut swap_chain_images = self.swap_chain_images.write();
         let mut images = unsafe { swapchain_loader.get_swapchain_images(swapchain).unwrap() };
         swap_chain_images.append(&mut images);
@@ -442,13 +511,11 @@ impl RenderResourceContext for VulkanRenderResourceContext {
     }
 
     fn create_texture(&self, _texture_descriptor: TextureDescriptor) -> TextureId {
-        let texture = TextureId::new();
-        texture
+        TextureId::new()
     }
 
     fn create_buffer(&self, _buffer_info: BufferInfo) -> BufferId {
-        let buffer = BufferId::new();
-        buffer
+        BufferId::new()
     }
 
     fn write_mapped_buffer(
@@ -461,19 +528,18 @@ impl RenderResourceContext for VulkanRenderResourceContext {
 
     fn read_mapped_buffer(
         &self,
-        id: BufferId,
-        range: Range<u64>,
-        read: &dyn Fn(&[u8], &dyn RenderResourceContext),
+        _id: BufferId,
+        _range: Range<u64>,
+        _read: &dyn Fn(&[u8], &dyn RenderResourceContext),
     ) {
     }
 
-    fn map_buffer(&self, id: BufferId, mode: BufferMapMode) {}
+    fn map_buffer(&self, _id: BufferId, _mode: BufferMapMode) {}
 
-    fn unmap_buffer(&self, id: BufferId) {}
+    fn unmap_buffer(&self, _id: BufferId) {}
 
     fn create_buffer_with_data(&self, _buffer_info: BufferInfo, _data: &[u8]) -> BufferId {
-        let buffer = BufferId::new();
-        buffer
+        BufferId::new()
     }
 
     fn create_shader_module(&self, shader_handle: &Handle<Shader>, shaders: &Assets<Shader>) {
@@ -481,18 +547,23 @@ impl RenderResourceContext for VulkanRenderResourceContext {
             return;
         }
         let shader = shaders.get(shader_handle).unwrap();
+        info!("Loading shader {:?}", shader_handle.id);
         self.create_shader_module_from_source(shader_handle, shader)
     }
 
     fn create_shader_module_from_source(&self, shader_handle: &Handle<Shader>, shader: &Shader) {
         let mut shader_modules = self.shader_modules.write();
-        let mut spirv: Cow<[u32]> = shader.get_spirv(None).unwrap().into();
+        let spirv: Cow<[u32]> = shader.get_spirv(None).unwrap().into();
         let create_info = vk::ShaderModuleCreateInfo::builder().code(&spirv).build();
         let shader_module = unsafe {
-            self.device.read().as_ref().unwrap().create_shader_module(&create_info, None).unwrap()
+            self.device
+                .read()
+                .as_ref()
+                .unwrap()
+                .create_shader_module(&create_info, None)
+                .unwrap()
         };
         shader_modules.insert(shader_handle.clone_weak(), shader_module);
-        println!("{:?}", shader);
     }
 
     fn get_specialized_shader(
@@ -552,10 +623,196 @@ impl RenderResourceContext for VulkanRenderResourceContext {
 
     fn create_render_pipeline(
         &self,
-        _pipeline_handle: Handle<PipelineDescriptor>,
-        _pipeline_descriptor: &PipelineDescriptor,
-        _shaders: &Assets<Shader>,
+        pipeline_handle: Handle<PipelineDescriptor>,
+        pipeline_descriptor: &PipelineDescriptor,
+        shaders: &Assets<Shader>,
     ) {
+        info!("Creating Render Pipeline");
+        // render pass
+        let format = match pipeline_descriptor.color_target_states[0].format {
+            TextureFormat::Bgra8UnormSrgb => vk::Format::B8G8R8A8_UNORM,
+            _ => unimplemented!(),
+        };
+        let attachment_desc = vk::AttachmentDescription::builder()
+            .format(format)
+            .samples(vk::SampleCountFlags::TYPE_1)
+            .load_op(vk::AttachmentLoadOp::CLEAR)
+            .store_op(vk::AttachmentStoreOp::STORE)
+            .initial_layout(vk::ImageLayout::UNDEFINED)
+            .final_layout(vk::ImageLayout::PRESENT_SRC_KHR)
+            .build();
+        let attachment_descs = [attachment_desc];
+
+        let attachment_ref = vk::AttachmentReference::builder()
+            .attachment(0)
+            .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+            .build();
+        let attachment_refs = [attachment_ref];
+
+        let subpass_desc = vk::SubpassDescription::builder()
+            .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
+            .color_attachments(&attachment_refs)
+            .build();
+        let subpass_descs = [subpass_desc];
+
+        let render_pass_info = vk::RenderPassCreateInfo::builder()
+            .attachments(&attachment_descs)
+            .subpasses(&subpass_descs)
+            .build();
+
+        let render_pass = unsafe {
+            self.device
+                .read()
+                .as_ref()
+                .unwrap()
+                .create_render_pass(&render_pass_info, None)
+                .unwrap()
+        };
+        // pipeline
+
+        self.create_shader_module(&pipeline_descriptor.shader_stages.vertex, shaders);
+        if let Some(ref fragment_handle) = pipeline_descriptor.shader_stages.fragment {
+            self.create_shader_module(fragment_handle, shaders);
+        }
+
+        let entry_point_name = CString::new("main").unwrap();
+        let shader_modules = self.shader_modules.read();
+        let mut shader_state_infos = vec![];
+
+        let vertex_shader_module = shader_modules
+            .get(&pipeline_descriptor.shader_stages.vertex)
+            .unwrap();
+        let vertex_shader_state_info = vk::PipelineShaderStageCreateInfo::builder()
+            .stage(vk::ShaderStageFlags::VERTEX)
+            .module(*vertex_shader_module)
+            .name(&entry_point_name)
+            .build();
+        shader_state_infos.push(vertex_shader_state_info);
+
+        if let Some(ref fragment_handle) = pipeline_descriptor.shader_stages.fragment {
+            let fragment_shader_module = shader_modules.get(fragment_handle).unwrap();
+            let fragment_shader_state_info = vk::PipelineShaderStageCreateInfo::builder()
+                .stage(vk::ShaderStageFlags::FRAGMENT)
+                .module(*fragment_shader_module)
+                .name(&entry_point_name)
+                .build();
+            shader_state_infos.push(fragment_shader_state_info);
+        };
+
+        let vertex_input_info = vk::PipelineVertexInputStateCreateInfo::builder().build();
+        let input_assembly_info = vk::PipelineInputAssemblyStateCreateInfo::builder()
+            .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
+            .primitive_restart_enable(false)
+            .build();
+        let s = self.window_swap_chain_properties.read();
+        let swapchain_properties = s.iter().next();
+        let extent = match swapchain_properties {
+            Some((_, properties)) => properties.extent,
+            None => vk::Extent2D {
+                width: 800,
+                height: 800,
+            },
+        };
+        let viewport = vk::Viewport {
+            x: 0.0,
+            y: 0.0,
+            width: extent.width as _,
+            height: extent.height as _,
+            min_depth: 0.0,
+            max_depth: 1.0,
+        };
+        let viewports = [viewport];
+        let scissor = vk::Rect2D {
+            offset: vk::Offset2D { x: 0, y: 0 },
+            extent,
+        };
+        let scissors = [scissor];
+        let viewport_info = vk::PipelineViewportStateCreateInfo::builder()
+            .viewports(&viewports)
+            .scissors(&scissors)
+            .build();
+
+        let rasterizer_info = vk::PipelineRasterizationStateCreateInfo::builder()
+            .depth_clamp_enable(false)
+            .rasterizer_discard_enable(false)
+            .polygon_mode(vk::PolygonMode::FILL)
+            .line_width(1.0)
+            .cull_mode(vk::CullModeFlags::BACK)
+            .front_face(vk::FrontFace::CLOCKWISE)
+            .depth_bias_enable(false)
+            .depth_bias_constant_factor(0.0)
+            .depth_bias_clamp(0.0)
+            .depth_bias_slope_factor(0.0)
+            .build();
+
+        let multisampling_info = vk::PipelineMultisampleStateCreateInfo::builder()
+            .sample_shading_enable(false)
+            .rasterization_samples(vk::SampleCountFlags::TYPE_1)
+            .min_sample_shading(1.0)
+            .alpha_to_coverage_enable(false)
+            .alpha_to_one_enable(false)
+            .build();
+
+        let color_blend_attachment = vk::PipelineColorBlendAttachmentState::builder()
+            .color_write_mask(vk::ColorComponentFlags::all())
+            .blend_enable(false)
+            .src_color_blend_factor(vk::BlendFactor::ONE)
+            .dst_color_blend_factor(vk::BlendFactor::ZERO)
+            .color_blend_op(vk::BlendOp::ADD)
+            .src_alpha_blend_factor(vk::BlendFactor::ONE)
+            .dst_alpha_blend_factor(vk::BlendFactor::ZERO)
+            .alpha_blend_op(vk::BlendOp::ADD)
+            .build();
+        let color_blend_attachments = [color_blend_attachment];
+
+        let color_blending_info = vk::PipelineColorBlendStateCreateInfo::builder()
+            .logic_op_enable(false)
+            .logic_op(vk::LogicOp::COPY)
+            .attachments(&color_blend_attachments)
+            .blend_constants([0.0, 0.0, 0.0, 0.0])
+            .build();
+
+        let render_pipeline_layout = {
+            let pipeline_layout_info = vk::PipelineLayoutCreateInfo::builder()
+                //.set_layouts
+                //.push_constant_ranges
+                .build();
+
+            unsafe {
+                self.device
+                    .read()
+                    .as_ref()
+                    .unwrap()
+                    .create_pipeline_layout(&pipeline_layout_info, None)
+                    .unwrap()
+            }
+        };
+        let pipeline_info = vk::GraphicsPipelineCreateInfo::builder()
+            .stages(&shader_state_infos)
+            .vertex_input_state(&vertex_input_info)
+            .input_assembly_state(&input_assembly_info)
+            .viewport_state(&viewport_info)
+            .rasterization_state(&rasterizer_info)
+            .multisample_state(&multisampling_info)
+            .color_blend_state(&color_blending_info)
+            .layout(render_pipeline_layout)
+            .render_pass(render_pass)
+            .subpass(0)
+            .build();
+        let pipeline_infos = [pipeline_info];
+
+        let render_pipeline = unsafe {
+            self.device
+                .read()
+                .as_ref()
+                .unwrap()
+                .create_graphics_pipelines(vk::PipelineCache::null(), &pipeline_infos, None)
+                .unwrap()[0]
+        };
+        let mut render_pipelines = self.render_pipelines.write();
+        render_pipelines.insert(pipeline_handle.clone(), render_pipeline);
+        let mut render_pipeline_layouts = self.render_pipeline_layouts.write();
+        render_pipeline_layouts.insert(pipeline_handle, render_pipeline_layout);
     }
 
     fn bind_group_descriptor_exists(
@@ -583,7 +840,7 @@ fn create_swapchain_image_views(
     swapchain_format: vk::Format,
 ) -> Vec<vk::ImageView> {
     swapchain_images
-        .into_iter()
+        .iter()
         .map(|image| {
             let create_info = vk::ImageViewCreateInfo::builder()
                 .image(*image)
