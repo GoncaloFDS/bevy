@@ -1,12 +1,18 @@
-use super::{VulkanRenderContext, VulkanRenderResourceContext};
+use std::sync::Arc;
+
+use ash::vk;
+use parking_lot::RwLock;
+
 use bevy_ecs::{Resources, World};
 use bevy_render::{
     render_graph::{Edge, NodeId, ResourceSlots, StageBorrow},
     renderer::RenderResourceContext,
 };
 use bevy_utils::HashMap;
-use parking_lot::RwLock;
-use std::sync::Arc;
+use bevy_utils::tracing::*;
+
+use super::{VulkanRenderContext, VulkanRenderResourceContext};
+use ash::version::DeviceV1_0;
 
 #[derive(Debug)]
 pub struct VulkanRenderGraphExecutor {
@@ -19,9 +25,10 @@ impl VulkanRenderGraphExecutor {
         &self,
         world: &World,
         resources: &Resources,
+        device: Arc<ash::Device>,
+        queue: &mut vk::Queue,
         stages: &mut [StageBorrow],
     ) {
-
         let mut render_resource_context = resources
             .get_mut::<Box<dyn RenderResourceContext>>()
             .unwrap();
@@ -29,7 +36,6 @@ impl VulkanRenderGraphExecutor {
             .downcast_mut::<VulkanRenderResourceContext>()
             .unwrap();
         let node_outputs: Arc<RwLock<HashMap<NodeId, ResourceSlots>>> = Default::default();
-        let queue = render_resource_context.graphics_queue.read().expect("Invalid Graphics Queue");
 
         for stage in stages.iter_mut() {
             // TODO: sort jobs and slice by "amount of work" / weights
@@ -83,21 +89,24 @@ impl VulkanRenderGraphExecutor {
                             .insert(node_state.id, node_state.output_slots.clone());
                     }
                 }
-                sender.send(render_context.finish()).unwrap();
+                sender.send(render_context.finish(queue)).unwrap();
                 // });
             }
             // })
             // .unwrap();
 
-            // let mut command_buffers = Vec::new();
-            // for _i in 0..actual_thread_count {
-            //     let command_buffer = receiver.recv().unwrap();
-            //     if let Some(command_buffer) = command_buffer {
-            //         command_buffers.push(command_buffer);
-            //     }
-            // }
-            //
+            let mut command_buffers = Vec::new();
+            for _i in 0..actual_thread_count {
+                let command_buffer = receiver.recv().unwrap();
+                if let Some(command_buffer) = command_buffer {
+                    command_buffers.push(command_buffer);
+                }
+            }
+
             // queue.submit(command_buffers.drain(..));
+            unsafe {
+                device.queue_submit(*queue, &[], vk::Fence::null()).unwrap()
+            }
         }
     }
 }

@@ -1,16 +1,17 @@
-use ash::{version::EntryV1_0, vk, Entry, Instance};
+use std::borrow::Cow;
 use std::ffi::{CStr, CString};
 
+use ash::{Entry, Instance, version::EntryV1_0, vk};
 use ash::extensions::ext::DebugUtils;
+
 use bevy_utils::tracing::*;
-use std::borrow::Cow;
 
 #[cfg(debug_assertions)]
 pub const ENABLE_VALIDATION_LAYERS: bool = true;
 #[cfg(not(debug_assertions))]
 pub const ENABLE_VALIDATION_LAYERS: bool = false;
 
-pub const REQUIRED_LAYERS: [&'static str; 1] = ["VK_LAYER_KHRONOS_validation"];
+pub const REQUIRED_LAYERS: [&str; 1] = ["VK_LAYER_KHRONOS_validation"];
 
 unsafe extern "system" fn vulkan_debug_callback(
     message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,

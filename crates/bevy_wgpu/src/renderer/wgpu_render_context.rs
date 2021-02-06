@@ -75,6 +75,14 @@ impl WgpuRenderContext {
 }
 
 impl RenderContext for WgpuRenderContext {
+    fn resources(&self) -> &dyn RenderResourceContext {
+        &self.render_resource_context
+    }
+
+    fn resources_mut(&mut self) -> &mut dyn RenderResourceContext {
+        &mut self.render_resource_context
+    }
+
     fn copy_buffer_to_buffer(
         &mut self,
         source_buffer: BufferId,
@@ -157,14 +165,6 @@ impl RenderContext for WgpuRenderContext {
             destination_mip_level,
             size,
         )
-    }
-
-    fn resources(&self) -> &dyn RenderResourceContext {
-        &self.render_resource_context
-    }
-
-    fn resources_mut(&mut self) -> &mut dyn RenderResourceContext {
-        &mut self.render_resource_context
     }
 
     fn begin_pass(
