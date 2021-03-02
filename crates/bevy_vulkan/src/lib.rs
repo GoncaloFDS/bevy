@@ -1,15 +1,14 @@
-extern crate ash;
-
-use bevy_app::{Plugin, prelude::*};
-use bevy_ecs::{IntoSystem, Resources, World};
-use bevy_render::renderer::{RenderResourceContext, shared_buffers_update_system, SharedBuffers};
+use bevy_app::{prelude::*, Plugin};
+use bevy_ecs::{IntoExclusiveSystem, IntoSystem, Resources, World};
+use bevy_render::renderer::{shared_buffers_update_system, RenderResourceContext, SharedBuffers};
 use renderer::VulkanRenderResourceContext;
 use vulkan_renderer::*;
+use bevy_render::RenderStage;
 
 mod debug;
 pub mod renderer;
-mod vulkan_renderer;
 mod vulkan_render_pass;
+mod vulkan_renderer;
 
 #[derive(Default)]
 pub struct VulkanPlugin;
@@ -17,9 +16,9 @@ pub struct VulkanPlugin;
 impl Plugin for VulkanPlugin {
     fn build(&self, app: &mut AppBuilder) {
         let render_system = get_vulkan_render_system(app.resources_mut());
-        app.add_system_to_stage(bevy_render::stage::RENDER, render_system.system())
+        app.add_system_to_stage(RenderStage::Render, render_system.exclusive_system())
             .add_system_to_stage(
-                bevy_render::stage::POST_RENDER,
+                RenderStage::PostRender,
                 shared_buffers_update_system.system(),
             );
     }

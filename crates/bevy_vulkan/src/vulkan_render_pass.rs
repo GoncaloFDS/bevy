@@ -29,7 +29,13 @@ impl<'a> RenderPass for VulkanRenderPass<'a> {
     }
 
     fn set_pipeline(&mut self, pipeline_handle: &Handle<PipelineDescriptor>) {
-        warn!("set_pipeline not implemented");
+        let pipeline = self
+            .render_context
+            .render_resource_context
+            .render_pipelines
+            .read()
+            .get(pipeline_handle)
+            .unwrap();
     }
 
     fn set_viewport(&mut self, x: f32, y: f32, w: f32, h: f32, min_depth: f32, max_depth: f32) {

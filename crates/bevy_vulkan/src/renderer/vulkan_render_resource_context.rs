@@ -55,11 +55,11 @@ pub struct VulkanRenderResourceContext {
 
     pub render_pass: Arc<RwLock<vk::RenderPass>>,
     render_pipeline_layouts: Arc<RwLock<HashMap<Handle<PipelineDescriptor>, vk::PipelineLayout>>>,
-    render_pipelines: Arc<RwLock<HashMap<Handle<PipelineDescriptor>, vk::Pipeline>>>,
+    pub render_pipelines: Arc<RwLock<HashMap<Handle<PipelineDescriptor>, vk::Pipeline>>>,
 
     pub swapchain_frame_buffers: Arc<RwLock<Vec<vk::Framebuffer>>>,
 
-    command_pool: Arc<RwLock<vk::CommandPool>>,
+    pub command_pool: Arc<RwLock<vk::CommandPool>>,
     pub command_buffers: Arc<RwLock<Vec<vk::CommandBuffer>>>,
 
     pub image_available_semaphore: Arc<RwLock<vk::Semaphore>>,
@@ -77,6 +77,7 @@ impl VulkanRenderResourceContext {
         queue_indices: QueueFamiliesIndices,
     ) -> Self {
         let surface_loader = Surface::new(entry.as_ref(), instance.as_ref());
+        let command_pool = Self::create_command_pool(device.as_ref());
 
         VulkanRenderResourceContext {
             entry,
@@ -96,11 +97,11 @@ impl VulkanRenderResourceContext {
             render_pipeline_layouts: Arc::new(Default::default()),
             render_pipelines: Arc::new(Default::default()),
             swapchain_frame_buffers: Arc::new(Default::default()),
-            command_pool: Arc::new(Default::default()),
+            command_pool: Arc::new(RwLock::new(command_pool)),
             command_buffers: Arc::new(Default::default()),
             image_available_semaphore: Arc::new(Default::default()),
             render_finished_semaphore: Arc::new(Default::default()),
-            asset_resources: Arc::new(Default::default())
+            asset_resources: Arc::new(Default::default()),
         }
     }
 
@@ -149,6 +150,8 @@ impl VulkanRenderResourceContext {
             .level(vk::CommandBufferLevel::PRIMARY)
             .command_buffer_count(framebuffers.len() as _)
             .build();
+
+        info!("frame len {}", framebuffers.len());
 
         let buffers = unsafe { device.allocate_command_buffers(&allocate_info).unwrap() };
 
@@ -224,8 +227,31 @@ impl VulkanRenderResourceContext {
             )
         };
         if physical_device_surface_support.is_err() {
-            panic!(physical_device_surface_support.err().unwrap());
+            panic!("{}", physical_device_surface_support.err().unwrap());
         }
+    }
+
+    pub fn begin_buffer(&mut self) {
+        let mut command_buffers = VulkanRenderResourceContext::create_and_register_command_buffers(
+            &self.device.as_ref(),
+            *self.command_pool.read(),
+            &self.swapchain_frame_buffers.read(),
+            *self.render_pass.read(),
+            vk::Extent2D {
+                width: 800,
+                height: 720,
+            },
+            *self.render_pipelines.write().iter().next().unwrap().1,
+        );
+
+        info!("command buffers {:?}", command_buffers);
+
+        self.command_buffers.write().append(&mut command_buffers);
+
+        *self.image_available_semaphore.write() =
+            VulkanRenderResourceContext::create_semaphore(self.device.as_ref());
+        *self.render_finished_semaphore.write() =
+            VulkanRenderResourceContext::create_semaphore(self.device.as_ref());
     }
 }
 
@@ -304,16 +330,17 @@ impl RenderResourceContext for VulkanRenderResourceContext {
 
         let mut swap_chain_images = self.swap_chain_images.write();
         let mut images = unsafe { swapchain_loader.get_swapchain_images(swapchain).unwrap() };
+        swap_chain_images.clear();
         swap_chain_images.append(&mut images);
         let mut image_views = create_swapchain_image_views(
             self.device.as_ref(),
             &swap_chain_images,
             properties.format.format,
         );
-        debug!("images {:?}", image_views);
+        info!("images {:?}", image_views);
         let mut swap_chain_image_views = self.swap_chain_image_views.write();
         swap_chain_image_views.append(&mut image_views);
-        debug!("images {:?}", swap_chain_image_views);
+        info!("images {:?}", swap_chain_image_views);
         *self.swapchain_loader.write() = Some(swapchain_loader);
     }
 
@@ -451,7 +478,6 @@ impl RenderResourceContext for VulkanRenderResourceContext {
     ) -> Option<RenderResourceId> {
         let asset_resources = self.asset_resources.read();
         asset_resources.get(&(handle, index)).cloned()
-
     }
 
     fn remove_asset_resource_untyped(&self, _handle: HandleUntyped, _index: u64) {}
@@ -557,7 +583,7 @@ impl RenderResourceContext for VulkanRenderResourceContext {
             Some((_, properties)) => properties.extent,
             None => vk::Extent2D {
                 width: 800,
-                height: 800,
+                height: 720,
             },
         };
         let viewport = vk::Viewport {
@@ -656,26 +682,6 @@ impl RenderResourceContext for VulkanRenderResourceContext {
         render_pipelines.insert(pipeline_handle.clone(), render_pipeline);
         let mut render_pipeline_layouts = self.render_pipeline_layouts.write();
         render_pipeline_layouts.insert(pipeline_handle, render_pipeline_layout);
-
-        // frame buffers
-
-        // Command Pool
-        let command_pool = VulkanRenderResourceContext::create_command_pool(self.device.as_ref());
-        let mut command_buffers = VulkanRenderResourceContext::create_and_register_command_buffers(
-            &self.device.as_ref(),
-            command_pool,
-            &self.swapchain_frame_buffers.read(),
-            render_pass,
-            extent,
-            render_pipeline,
-        );
-
-        self.command_buffers.write().append(&mut command_buffers);
-
-        *self.image_available_semaphore.write() =
-            VulkanRenderResourceContext::create_semaphore(self.device.as_ref());
-        *self.render_finished_semaphore.write() =
-            VulkanRenderResourceContext::create_semaphore(self.device.as_ref());
     }
 
     fn bind_group_descriptor_exists(
@@ -727,7 +733,6 @@ fn create_swapchain_image_views(
         })
         .collect::<Vec<_>>()
 }
-
 
 impl Drop for VulkanRenderResourceContext {
     fn drop(&mut self) {

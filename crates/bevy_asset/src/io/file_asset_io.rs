@@ -27,17 +27,18 @@ impl FileAssetIo {
     }
 
     pub fn get_root_path() -> PathBuf {
-        if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
-            PathBuf::from(manifest_dir)
-        } else {
-            env::current_exe()
-                .map(|path| {
-                    path.parent()
-                        .map(|exe_parent_path| exe_parent_path.to_owned())
-                        .unwrap()
-                })
-                .unwrap()
-        }
+        // if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
+        //     PathBuf::from(manifest_dir)
+        // } else {
+        //     env::current_exe()
+        //         .map(|path| {
+        //             path.parent()
+        //                 .map(|exe_parent_path| exe_parent_path.to_owned())
+        //                 .unwrap()
+        //         })
+        //         .unwrap()
+        // }
+        PathBuf::from("C:\\dev\\bevy")
     }
 }
 
@@ -48,10 +49,14 @@ impl AssetIo for FileAssetIo {
             let full_path = self.root_path.join(path);
             match File::open(&full_path) {
                 Ok(mut file) => {
+                    println!("path: {:?}", path);
+                    println!("full path: {:?}", full_path.as_path());
                     file.read_to_end(&mut bytes)?;
                 }
                 Err(e) => {
                     return if e.kind() == std::io::ErrorKind::NotFound {
+                        println!("path: {:?}", path);
+                        println!("full path: {:?}", full_path.as_path());
                         Err(AssetIoError::NotFound(full_path))
                     } else {
                         Err(e.into())

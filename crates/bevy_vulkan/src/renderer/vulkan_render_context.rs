@@ -55,6 +55,23 @@ impl VulkanRenderContext {
             }
             info!("queue_submit");
         }
+
+        // let swapchains = [self.render_resource_context.swa];
+        // let image_indices = [image_index];
+        //
+        // {
+        //     let present_info = vk::PresentInfoKHR::builder()
+        //         .wait_semaphores(&signal_semaphores)
+        //         .swapchains(&swapchains)
+        //         .image_indices(&image_indices)
+        //         .build();
+        //     unsafe {
+        //         self.swapchain
+        //             .queue_present(self.present_queue, &present_info)
+        //             .unwrap()
+        //     };
+        // }
+
         None
     }
 }
@@ -132,19 +149,23 @@ impl RenderContext for VulkanRenderContext {
             &self.render_resource_context.swap_chain_image_views.read(),
             *self.render_resource_context.render_pass.read(),
             vk::Extent2D {
-                height: 800,
+                height: 720,
                 width: 800,
             },
         );
 
 
         // self.render_resource_context.swapchain_frame_buffers.write().clear();
+        info!("swap_fremabuffers {:?} ", swapchain_framebuffers);
         self.render_resource_context
             .swapchain_frame_buffers
             .write()
             .append(&mut swapchain_framebuffers);
 
-        info!(" swap {:?} ", self.render_resource_context.swapchain_frame_buffers.read());
+        info!("swap {:?} ", self.render_resource_context.swapchain_frame_buffers.read());
+
+        // Command buffers
+        self.render_resource_context.begin_buffer();
 
         let mut vulkan_render_pass = VulkanRenderPass {
             render_context: self,
@@ -152,6 +173,9 @@ impl RenderContext for VulkanRenderContext {
         };
 
         run_pass(&mut vulkan_render_pass);
+
+        // self.render_resource_context.begin_command
+        info!("begin pass");
     }
 }
 
