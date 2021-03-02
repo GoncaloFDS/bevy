@@ -1,13 +1,11 @@
-use ash::{version::DeviceV1_0, vk, Device};
-
+use crate::renderer::VulkanRenderResourceContext;
 use bevy_render::{
     pass::{PassDescriptor, RenderPass},
     renderer::{BufferId, RenderContext, RenderResourceBindings, RenderResourceContext, TextureId},
     texture::Extent3d,
 };
 use bevy_utils::tracing::*;
-
-use crate::{renderer::VulkanRenderResourceContext, vulkan_render_pass::VulkanRenderPass};
+use ash::vk;
 
 pub struct VulkanRenderContext {
     pub render_resource_context: VulkanRenderResourceContext,
@@ -16,62 +14,11 @@ pub struct VulkanRenderContext {
 impl VulkanRenderContext {
     pub fn new(resources: VulkanRenderResourceContext) -> Self {
         VulkanRenderContext {
-            // device,
             render_resource_context: resources,
         }
     }
 
-    pub fn finish(&self, queue: &mut vk::Queue) -> Option<vk::CommandBuffer> {
-        if self.render_resource_context.command_buffers.read().len() == 0 {
-            return None;
-        }
-        let image_index = 0;
-        let wait_semaphore = [*self
-            .render_resource_context
-            .image_available_semaphore
-            .read()];
-        let signal_semaphore = [*self
-            .render_resource_context
-            .render_finished_semaphore
-            .read()];
-
-        {
-            // Submit command buffer
-            let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
-            let command_buffers =
-                [self.render_resource_context.command_buffers.read()[image_index]];
-            let submit_info = vk::SubmitInfo::builder()
-                .wait_semaphores(&wait_semaphore)
-                .wait_dst_stage_mask(&wait_stages)
-                .command_buffers(&command_buffers)
-                .signal_semaphores(&signal_semaphore)
-                .build();
-            let submit_infos = [submit_info];
-            unsafe {
-                self.render_resource_context
-                    .device
-                    .queue_submit(*queue, &submit_infos, vk::Fence::null())
-                    .unwrap()
-            }
-            info!("queue_submit");
-        }
-
-        // let swapchains = [self.render_resource_context.swa];
-        // let image_indices = [image_index];
-        //
-        // {
-        //     let present_info = vk::PresentInfoKHR::builder()
-        //         .wait_semaphores(&signal_semaphores)
-        //         .swapchains(&swapchains)
-        //         .image_indices(&image_indices)
-        //         .build();
-        //     unsafe {
-        //         self.swapchain
-        //             .queue_present(self.present_queue, &present_info)
-        //             .unwrap()
-        //     };
-        // }
-
+    pub fn finish(&mut self) -> Option<vk::CommandBuffer> {
         None
     }
 }
@@ -121,7 +68,7 @@ impl RenderContext for VulkanRenderContext {
         _destination_bytes_per_row: u32,
         _size: Extent3d,
     ) {
-        unimplemented!()
+        todo!()
     }
 
     fn copy_texture_to_texture(
@@ -134,7 +81,7 @@ impl RenderContext for VulkanRenderContext {
         _destination_mip_level: u32,
         _size: Extent3d,
     ) {
-        unimplemented!()
+        todo!()
     }
 
     #[allow(unused_variables)]
@@ -144,59 +91,6 @@ impl RenderContext for VulkanRenderContext {
         render_resource_bindings: &RenderResourceBindings,
         run_pass: &mut dyn Fn(&mut dyn RenderPass),
     ) {
-        let mut swapchain_framebuffers = create_framebuffers(
-            self.render_resource_context.device.as_ref(),
-            &self.render_resource_context.swap_chain_image_views.read(),
-            *self.render_resource_context.render_pass.read(),
-            vk::Extent2D {
-                height: 720,
-                width: 800,
-            },
-        );
-
-
-        // self.render_resource_context.swapchain_frame_buffers.write().clear();
-        info!("swap_fremabuffers {:?} ", swapchain_framebuffers);
-        self.render_resource_context
-            .swapchain_frame_buffers
-            .write()
-            .append(&mut swapchain_framebuffers);
-
-        info!("swap {:?} ", self.render_resource_context.swapchain_frame_buffers.read());
-
-        // Command buffers
-        self.render_resource_context.begin_buffer();
-
-        let mut vulkan_render_pass = VulkanRenderPass {
-            render_context: self,
-            pipeline_descriptor: None,
-        };
-
-        run_pass(&mut vulkan_render_pass);
-
-        // self.render_resource_context.begin_command
         info!("begin pass");
     }
-}
-
-fn create_framebuffers(
-    device: &Device,
-    image_views: &[vk::ImageView],
-    render_pass: vk::RenderPass,
-    extent: vk::Extent2D,
-) -> Vec<vk::Framebuffer> {
-    image_views
-        .iter()
-        .map(|view| [*view])
-        .map(|attachments| {
-            let framebuffer_info = vk::FramebufferCreateInfo::builder()
-                .render_pass(render_pass)
-                .attachments(&attachments)
-                .width(extent.width)
-                .height(extent.height)
-                .layers(1)
-                .build();
-            unsafe { device.create_framebuffer(&framebuffer_info, None).unwrap() }
-        })
-        .collect()
 }

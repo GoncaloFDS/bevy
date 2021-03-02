@@ -1,14 +1,17 @@
 use bevy_app::{prelude::*, Plugin};
 use bevy_ecs::{IntoExclusiveSystem, IntoSystem, Resources, World};
-use bevy_render::renderer::{shared_buffers_update_system, RenderResourceContext, SharedBuffers};
+use bevy_render::{
+    renderer::{shared_buffers_update_system, RenderResourceContext, SharedBuffers},
+    RenderStage,
+};
 use renderer::VulkanRenderResourceContext;
 use vulkan_renderer::*;
-use bevy_render::RenderStage;
 
 mod debug;
 pub mod renderer;
 mod vulkan_render_pass;
 mod vulkan_renderer;
+mod vulkan_resources;
 
 #[derive(Default)]
 pub struct VulkanPlugin;

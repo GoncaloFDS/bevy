@@ -27,18 +27,17 @@ impl FileAssetIo {
     }
 
     pub fn get_root_path() -> PathBuf {
-        // if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
-        //     PathBuf::from(manifest_dir)
-        // } else {
-        //     env::current_exe()
-        //         .map(|path| {
-        //             path.parent()
-        //                 .map(|exe_parent_path| exe_parent_path.to_owned())
-        //                 .unwrap()
-        //         })
-        //         .unwrap()
-        // }
-        PathBuf::from("C:\\dev\\bevy")
+        if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
+            PathBuf::from(manifest_dir)
+        } else {
+            env::current_exe()
+                .map(|path| {
+                    path.parent()
+                        .map(|exe_parent_path| exe_parent_path.to_owned())
+                        .unwrap()
+                })
+                .unwrap()
+        }
     }
 }
 

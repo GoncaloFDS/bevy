@@ -9,10 +9,8 @@ use bevy_render::{
     renderer::RenderResourceContext,
 };
 use bevy_utils::HashMap;
-use bevy_utils::tracing::*;
 
 use super::{VulkanRenderContext, VulkanRenderResourceContext};
-use ash::version::DeviceV1_0;
 
 #[derive(Debug)]
 pub struct VulkanRenderGraphExecutor {
@@ -89,7 +87,7 @@ impl VulkanRenderGraphExecutor {
                             .insert(node_state.id, node_state.output_slots.clone());
                     }
                 }
-                sender.send(render_context.finish(queue)).unwrap();
+                sender.send(render_context.finish()).unwrap();
                 // });
             }
             // })
@@ -104,9 +102,6 @@ impl VulkanRenderGraphExecutor {
             }
 
             // queue.submit(command_buffers.drain(..));
-            unsafe {
-                device.queue_submit(*queue, &[], vk::Fence::null()).unwrap()
-            }
         }
     }
 }
