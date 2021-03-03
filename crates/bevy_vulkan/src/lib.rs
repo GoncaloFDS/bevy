@@ -1,7 +1,7 @@
-use bevy_app::{prelude::*, Plugin};
+use bevy_app::{Plugin, prelude::*};
 use bevy_ecs::{IntoExclusiveSystem, IntoSystem, Resources, World};
 use bevy_render::{
-    renderer::{shared_buffers_update_system, RenderResourceContext, SharedBuffers},
+    renderer::{RenderResourceContext, shared_buffers_update_system, SharedBuffers},
     RenderStage,
 };
 use renderer::VulkanRenderResourceContext;
@@ -30,6 +30,7 @@ impl Plugin for VulkanPlugin {
 pub fn get_vulkan_render_system(
     resources: &mut Resources,
 ) -> impl FnMut(&mut World, &mut Resources) {
+    println!("get_vulkan_render_system new");
     let mut vulkan_renderer = VulkanRenderer::new();
     let resource_context = VulkanRenderResourceContext::new(
         vulkan_renderer.entry.clone(),

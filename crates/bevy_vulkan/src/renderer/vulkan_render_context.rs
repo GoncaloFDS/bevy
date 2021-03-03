@@ -1,11 +1,13 @@
-use crate::renderer::VulkanRenderResourceContext;
+use ash::vk;
+
 use bevy_render::{
     pass::{PassDescriptor, RenderPass},
     renderer::{BufferId, RenderContext, RenderResourceBindings, RenderResourceContext, TextureId},
     texture::Extent3d,
 };
 use bevy_utils::tracing::*;
-use ash::vk;
+
+use crate::renderer::VulkanRenderResourceContext;
 
 pub struct VulkanRenderContext {
     pub render_resource_context: VulkanRenderResourceContext,

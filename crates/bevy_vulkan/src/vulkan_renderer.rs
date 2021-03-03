@@ -4,12 +4,12 @@ use std::{
 };
 
 use ash::{
-    extensions::{ext::DebugUtils, khr::Swapchain},
-    version::{DeviceV1_0, EntryV1_0, InstanceV1_0},
-    vk, Device, Entry, Instance,
+    Device,
+    Entry,
+    extensions::{ext::DebugUtils, khr::Swapchain}, Instance, version::{DeviceV1_0, EntryV1_0, InstanceV1_0}, vk,
 };
 
-use bevy_app::{prelude::*, ManualEventReader};
+use bevy_app::{ManualEventReader, prelude::*};
 use bevy_ecs::{Resources, World};
 use bevy_render::{
     render_graph::{DependentNodeStager, RenderGraph, RenderGraphStager},
@@ -21,7 +21,7 @@ use bevy_window::{WindowCreated, WindowResized, Windows};
 use crate::{
     debug,
     debug::{
-        check_validation_layer_support, get_layer_names_and_pointers, ENABLE_VALIDATION_LAYERS,
+        check_validation_layer_support, ENABLE_VALIDATION_LAYERS, get_layer_names_and_pointers,
     },
     renderer::*,
 };
@@ -85,7 +85,11 @@ impl VulkanRenderer {
                 .get(window_created_event.id)
                 .expect("Received window created event for non-existing window.");
             let winit_windows = resources.get::<bevy_winit::WinitWindows>().unwrap();
-            render_resource_context.create_window_surface(window.id(), &*winit_windows);
+            let winit_window = winit_windows.get_window(window.id()).unwrap();
+            let surface = unsafe {
+                ash_window::create_surface(self.entry.as_ref(), self.instance.as_ref(), winit_window, None)
+            };
+            render_resource_context.set_window_surface(window.id(), surface.unwrap());
 
             info!("handled window create event");
         }

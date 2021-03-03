@@ -1,8 +1,10 @@
-use crate::{vulkan_renderer::QueueFamiliesIndices, vulkan_resources::VulkanResources};
+use std::{ops::Range, sync::Arc};
+
 use ash::{
-    extensions::khr::{Surface, Win32Surface},
-    vk, Device, Entry, Instance,
+    Device,
+    Entry, extensions::khr::{Surface, Win32Surface}, Instance, vk,
 };
+
 use bevy_asset::{Assets, Handle, HandleUntyped};
 use bevy_render::{
     pipeline::{BindGroupDescriptorId, PipelineDescriptor},
@@ -15,9 +17,8 @@ use bevy_render::{
 };
 use bevy_utils::tracing::*;
 use bevy_window::{Window, WindowId};
-use bevy_winit::WinitWindows;
-use std::sync::Arc;
-use std::ops::Range;
+
+use crate::{vulkan_renderer::QueueFamiliesIndices, vulkan_resources::VulkanResources};
 
 pub const BIND_BUFFER_ALIGNMENT: usize = 256;
 pub const TEXTURE_ALIGNMENT: usize = 256;
@@ -45,7 +46,8 @@ impl VulkanRenderResourceContext {
         physical_device: Arc<vk::PhysicalDevice>,
         queue_indices: QueueFamiliesIndices,
     ) -> Self {
-        let surface_loader = Surface::new(entry.as_ref(), instance.as_ref());
+        let surface_loader = Arc::new(Surface::new(entry.as_ref(), instance.as_ref()));
+        let resources = VulkanResources::new(device.clone(), surface_loader.clone());
 
         VulkanRenderResourceContext {
             entry,
@@ -53,18 +55,21 @@ impl VulkanRenderResourceContext {
             instance,
             physical_device,
             queue_indices,
-            surface_loader: Arc::new(surface_loader),
-            resources: Default::default(),
+            surface_loader,
+            resources
         }
     }
 
-    pub fn create_window_surface(&self, _window_id: WindowId, _winit_windows: &WinitWindows) {
-        warn!("create_window_surface not implemented");
+    pub fn set_window_surface(&self, window_id: WindowId, surface: vk::SurfaceKHR) {
+        let mut window_surfaces = self.resources.window_surfaces.write();
+        window_surfaces.insert(window_id, surface);
     }
 }
 
 impl RenderResourceContext for VulkanRenderResourceContext {
-    fn create_swap_chain(&self, _window: &Window) {}
+    fn create_swap_chain(&self, _window: &Window) {
+        warn!("create_swap_chain not implemented")
+    }
 
     fn next_swap_chain_texture(&self, _window: &Window) -> TextureId {
         warn!("next_swap_chain_texture not implemented");
