@@ -4,13 +4,13 @@ use std::{
 };
 
 use ash::{
-    Device,
-    Entry,
-    extensions::{ext::DebugUtils, khr::Swapchain}, Instance, version::{DeviceV1_0, EntryV1_0, InstanceV1_0}, vk,
+    extensions::{ext::DebugUtils, khr::Swapchain},
+    version::{DeviceV1_0, EntryV1_0, InstanceV1_0},
+    vk, Device, Entry, Instance,
 };
 
-use bevy_app::{ManualEventReader, prelude::*};
-use bevy_ecs::{Resources, World};
+use bevy_app::{prelude::*, Events, ManualEventReader};
+use bevy_ecs::world::{Mut, World};
 use bevy_render::{
     render_graph::{DependentNodeStager, RenderGraph, RenderGraphStager},
     renderer::RenderResourceContext,
@@ -18,13 +18,8 @@ use bevy_render::{
 use bevy_utils::tracing::*;
 use bevy_window::{WindowCreated, WindowResized, Windows};
 
-use crate::{
-    debug,
-    debug::{
-        check_validation_layer_support, ENABLE_VALIDATION_LAYERS, get_layer_names_and_pointers,
-    },
-    renderer::*,
-};
+use crate::renderer::vulkan_debug::*;
+use crate::renderer::*;
 
 pub struct VulkanRenderer {
     pub entry: Arc<ash::Entry>,
@@ -45,7 +40,7 @@ impl VulkanRenderer {
     pub fn new() -> Self {
         let entry: Entry = ash::Entry::new().expect("Failed to create entry.");
         let instance = Self::create_instance(&entry);
-        let debug_utils = debug::setup_debug_messenger(&entry, &instance);
+        let debug_utils = vulkan_debug::setup_debug_messenger(&entry, &instance);
         let (physical_device, queue_indices) = Self::pick_physical_device(&instance);
         let (device, graphics_queue, present_queue) =
             Self::create_logical_device_with_graphics_queue(
@@ -68,15 +63,16 @@ impl VulkanRenderer {
         }
     }
 
-    pub fn handle_window_create_events(&mut self, resources: &Resources) {
-        let mut render_resource_context = resources
-            .get_mut::<Box<dyn RenderResourceContext>>()
+    pub fn handle_window_create_events(&mut self, world: &mut World) {
+        let world = world.cell();
+        let mut render_resource_context = world
+            .get_resource_mut::<Box<dyn RenderResourceContext>>()
             .unwrap();
         let render_resource_context = render_resource_context
             .downcast_mut::<VulkanRenderResourceContext>()
             .unwrap();
-        let windows = resources.get::<Windows>().unwrap();
-        let window_created_events = resources.get::<Events<WindowCreated>>().unwrap();
+        let windows = world.get_resource::<Windows>().unwrap();
+        let window_created_events = world.get_resource::<Events<WindowCreated>>().unwrap();
         for window_created_event in self
             .window_created_event_reader
             .iter(&window_created_events)
@@ -84,10 +80,15 @@ impl VulkanRenderer {
             let window = windows
                 .get(window_created_event.id)
                 .expect("Received window created event for non-existing window.");
-            let winit_windows = resources.get::<bevy_winit::WinitWindows>().unwrap();
+            let winit_windows = world.get_resource::<bevy_winit::WinitWindows>().unwrap();
             let winit_window = winit_windows.get_window(window.id()).unwrap();
             let surface = unsafe {
-                ash_window::create_surface(self.entry.as_ref(), self.instance.as_ref(), winit_window, None)
+                ash_window::create_surface(
+                    self.entry.as_ref(),
+                    self.instance.as_ref(),
+                    winit_window,
+                    None,
+                )
             };
             render_resource_context.set_window_surface(window.id(), surface.unwrap());
 
@@ -95,31 +96,34 @@ impl VulkanRenderer {
         }
     }
 
-    pub fn run_graph(&mut self, world: &mut World, resources: &mut Resources) {
-        let mut render_graph = resources.get_mut::<RenderGraph>().unwrap();
-        //stage nodes
-        let mut stager = DependentNodeStager::loose_grouping();
-        let stages = stager.get_stages(&render_graph).unwrap();
-        let mut borrowed = stages.borrow(&mut render_graph);
+    pub fn run_graph(&mut self, world: &mut World) {
+        world.resource_scope(|mut render_graph: Mut<RenderGraph>, world| {
+            render_graph.prepare(world);
+            //stage nodes
+            let mut stager = DependentNodeStager::loose_grouping();
+            let stages = stager.get_stages(&render_graph).unwrap();
+            let mut borrowed = stages.borrow(&mut render_graph);
 
-        // execute stages
-        let graph_executor = VulkanRenderGraphExecutor {
-            max_thread_count: 1,
-        };
-        graph_executor.execute(
-            world,
-            resources,
-            self.device.clone(),
-            &mut self.graphics_queue,
-            &mut borrowed,
-        );
+            //execute stages
+            let graph_executor = VulkanRenderGraphExecutor {
+                max_thread_count: 2,
+            };
+            graph_executor.execute(
+                world,
+                self.device.clone(),
+                &mut self.graphics_queue,
+                &mut borrowed,
+            );
+        })
     }
 
-    pub fn update(&mut self, world: &mut World, resources: &mut Resources) {
-        self.handle_window_create_events(resources);
-        self.run_graph(world, resources);
+    pub fn update(&mut self, world: &mut World) {
+        self.handle_window_create_events(world);
+        self.run_graph(world);
 
-        let render_resource_context = resources.get::<Box<dyn RenderResourceContext>>().unwrap();
+        let render_resource_context = world
+            .get_resource::<Box<dyn RenderResourceContext>>()
+            .unwrap();
         render_resource_context.drop_all_swap_chain_textures();
         render_resource_context.remove_stale_bind_groups();
     }

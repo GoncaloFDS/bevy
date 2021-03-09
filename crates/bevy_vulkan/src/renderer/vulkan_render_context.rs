@@ -91,7 +91,7 @@ impl RenderContext for VulkanRenderContext {
         &mut self,
         pass_descriptor: &PassDescriptor,
         render_resource_bindings: &RenderResourceBindings,
-        run_pass: &mut dyn Fn(&mut dyn RenderPass),
+        run_pass: &mut dyn FnMut(&mut dyn RenderPass),
     ) {
         info!("begin pass");
     }

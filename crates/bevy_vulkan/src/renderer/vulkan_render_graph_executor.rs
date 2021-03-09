@@ -3,7 +3,7 @@ use std::sync::Arc;
 use ash::vk;
 use parking_lot::RwLock;
 
-use bevy_ecs::{Resources, World};
+use bevy_ecs::world::World;
 use bevy_render::{
     render_graph::{Edge, NodeId, ResourceSlots, StageBorrow},
     renderer::RenderResourceContext,
@@ -22,19 +22,20 @@ impl VulkanRenderGraphExecutor {
     pub fn execute(
         &self,
         world: &World,
-        resources: &Resources,
         device: Arc<ash::Device>,
         queue: &mut vk::Queue,
         stages: &mut [StageBorrow],
     ) {
-        let mut render_resource_context = resources
-            .get_mut::<Box<dyn RenderResourceContext>>()
-            .unwrap();
-        let render_resource_context = render_resource_context
-            .downcast_mut::<VulkanRenderResourceContext>()
-            .unwrap();
+        let render_resource_context = {
+            let context = world
+                .get_resource::<Box<dyn RenderResourceContext>>()
+                .unwrap();
+            context
+                .downcast_ref::<VulkanRenderResourceContext>()
+                .unwrap()
+                .clone()
+        };
         let node_outputs: Arc<RwLock<HashMap<NodeId, ResourceSlots>>> = Default::default();
-
         for stage in stages.iter_mut() {
             // TODO: sort jobs and slice by "amount of work" / weights
             // stage.jobs.sort_by_key(|j| j.node_states.len());
@@ -76,7 +77,6 @@ impl VulkanRenderGraphExecutor {
                         }
                         node_state.node.update(
                             world,
-                            resources,
                             &mut render_context,
                             &node_state.input_slots,
                             &mut node_state.output_slots,
