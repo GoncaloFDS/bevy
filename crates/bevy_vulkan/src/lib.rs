@@ -1,15 +1,10 @@
-use std::borrow::Cow;
-
-use futures_lite::future;
-
-use bevy_app::prelude::*;
 use bevy_app::prelude::*;
 use bevy_ecs::{
     system::{IntoExclusiveSystem, IntoSystem},
     world::World,
 };
 use bevy_render::{
-    renderer::{RenderResourceContext, shared_buffers_update_system, SharedBuffers},
+    renderer::{shared_buffers_update_system, RenderResourceContext, SharedBuffers},
     RenderStage,
 };
 use renderer::VulkanRenderResourceContext;
@@ -37,7 +32,7 @@ impl Plugin for VulkanPlugin {
 }
 
 pub fn get_vulkan_render_system(world: &mut World) -> impl FnMut(&mut World) {
-    let mut vulkan_renderer = VulkanRenderer::new();
+    let mut vulkan_renderer = VulkanRenderer::default();
 
     let resource_context = VulkanRenderResourceContext::new(
         vulkan_renderer.entry.clone(),

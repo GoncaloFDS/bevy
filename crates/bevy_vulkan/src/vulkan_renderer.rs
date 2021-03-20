@@ -9,7 +9,7 @@ use ash::{
     vk, Device, Entry, Instance,
 };
 
-use bevy_app::{prelude::*, Events, ManualEventReader};
+use bevy_app::{Events, ManualEventReader};
 use bevy_ecs::world::{Mut, World};
 use bevy_render::{
     render_graph::{DependentNodeStager, RenderGraph, RenderGraphStager},
@@ -36,9 +36,9 @@ pub struct VulkanRenderer {
     pub window_created_event_reader: ManualEventReader<WindowCreated>,
 }
 
-impl VulkanRenderer {
-    pub fn new() -> Self {
-        let entry: Entry = ash::Entry::new().expect("Failed to create entry.");
+impl Default for VulkanRenderer {
+    fn default() -> Self {
+        let entry: Entry = unsafe { ash::Entry::new().expect("Failed to create entry.") };
         let instance = Self::create_instance(&entry);
         let debug_utils = vulkan_debug::setup_debug_messenger(&entry, &instance);
         let (physical_device, queue_indices) = Self::pick_physical_device(&instance);
@@ -62,7 +62,9 @@ impl VulkanRenderer {
             window_created_event_reader: Default::default(),
         }
     }
+}
 
+impl VulkanRenderer {
     pub fn handle_window_create_events(&mut self, world: &mut World) {
         let world = world.cell();
         let mut render_resource_context = world
@@ -97,7 +99,7 @@ impl VulkanRenderer {
     }
 
     pub fn run_graph(&mut self, world: &mut World) {
-        world.resource_scope(|mut render_graph: Mut<RenderGraph>, world| {
+        world.resource_scope(|world, mut render_graph: Mut<RenderGraph>| {
             render_graph.prepare(world);
             //stage nodes
             let mut stager = DependentNodeStager::loose_grouping();

@@ -1,8 +1,8 @@
 use std::{ops::Range, sync::Arc};
 
 use ash::{
-    Device,
-    Entry, extensions::khr::{Surface, Win32Surface}, Instance, vk,
+    extensions::khr::{Surface, Win32Surface},
+    vk, Device, Entry, Instance,
 };
 
 use bevy_asset::{Assets, Handle, HandleUntyped};
@@ -51,12 +51,12 @@ impl VulkanRenderResourceContext {
 
         VulkanRenderResourceContext {
             entry,
-            device,
             instance,
+            device,
             physical_device,
             queue_indices,
             surface_loader,
-            resources
+            resources,
         }
     }
 
@@ -85,7 +85,8 @@ impl RenderResourceContext for VulkanRenderResourceContext {
     }
 
     fn create_sampler(&self, _sampler_descriptor: &SamplerDescriptor) -> SamplerId {
-        todo!()
+        warn!("create_sampler not implemented");
+        SamplerId::new()
     }
 
     fn create_texture(&self, _texture_descriptor: TextureDescriptor) -> TextureId {
