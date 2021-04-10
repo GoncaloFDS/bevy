@@ -20,8 +20,9 @@ bevy_winit = { path = "../bevy_winit", optional = true, version = "0.5.0" }
 bevy_utils = { path = "../bevy_utils", version = "0.5.0" }
 
 #other
-ash = "0.32"
+ash = "0.32.1"
 ash-window = "0.6"
+vk-mem = "0.2.2"
 futures-lite = "1.4.0"
 crossbeam-channel = "0.4.4"
 crossbeam-utils = "0.7.2"

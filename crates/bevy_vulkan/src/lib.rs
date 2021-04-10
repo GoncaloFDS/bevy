@@ -16,6 +16,8 @@ pub mod renderer;
 mod vulkan_render_pass;
 mod vulkan_renderer;
 mod vulkan_resources;
+mod vulkan_debug;
+mod vulkan_types;
 
 #[derive(Default)]
 pub struct VulkanPlugin;
@@ -33,14 +35,8 @@ impl Plugin for VulkanPlugin {
 
 pub fn get_vulkan_render_system(world: &mut World) -> impl FnMut(&mut World) {
     let mut vulkan_renderer = VulkanRenderer::default();
+    let resource_context = VulkanRenderResourceContext::new(&vulkan_renderer);
 
-    let resource_context = VulkanRenderResourceContext::new(
-        vulkan_renderer.entry.clone(),
-        vulkan_renderer.instance.clone(),
-        vulkan_renderer.device.clone(),
-        vulkan_renderer.physical_device.clone(),
-        vulkan_renderer.queue_indices,
-    );
     world.insert_resource::<Box<dyn RenderResourceContext>>(Box::new(resource_context));
     world.insert_resource(SharedBuffers::new(4096));
     move |world| {
