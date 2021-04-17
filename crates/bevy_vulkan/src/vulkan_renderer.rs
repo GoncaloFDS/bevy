@@ -4,9 +4,9 @@ use std::{
 };
 
 use ash::{
-    extensions::{ext::DebugUtils, khr::Swapchain},
-    version::{DeviceV1_0, EntryV1_0, InstanceV1_0},
-    vk, Device, Entry, Instance,
+    Device,
+    Entry,
+    extensions::{ext::DebugUtils, khr::Swapchain}, Instance, version::{DeviceV1_0, EntryV1_0, InstanceV1_0}, vk,
 };
 
 use bevy_app::{Events, ManualEventReader};
@@ -27,7 +27,7 @@ pub struct VulkanRenderer {
     pub instance: Arc<ash::Instance>,
     pub device: Arc<ash::Device>,
     pub physical_device: Arc<vk::PhysicalDevice>,
-    
+
     pub graphics_queue: vk::Queue,
     pub queue_indices: QueueFamiliesIndices,
 
@@ -262,6 +262,7 @@ fn check_device_extension_support(
         })
     })
 }
+
 impl Drop for VulkanRenderer {
     fn drop(&mut self) {
         unsafe {

@@ -4,7 +4,7 @@ use bevy_ecs::{
     world::World,
 };
 use bevy_render::{
-    renderer::{shared_buffers_update_system, RenderResourceContext, SharedBuffers},
+    renderer::{RenderResourceContext, shared_buffers_update_system, SharedBuffers},
     RenderStage,
 };
 use renderer::VulkanRenderResourceContext;
@@ -13,10 +13,11 @@ pub use vulkan_renderer::*;
 pub use vulkan_resources::*;
 
 pub mod renderer;
+mod vulkan_debug;
 mod vulkan_render_pass;
 mod vulkan_renderer;
 mod vulkan_resources;
-mod vulkan_debug;
+mod vulkan_type_converter;
 mod vulkan_types;
 
 #[derive(Default)]

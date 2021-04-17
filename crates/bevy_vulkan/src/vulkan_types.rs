@@ -3,6 +3,11 @@ use std::os::raw::c_char;
 
 use ash::vk;
 
+use bevy_render::texture::TextureFormat;
+use bevy_window::Window;
+
+use crate::vulkan_type_converter::{VulkanFrom, VulkanInto};
+
 // convert vk string to String
 pub fn vk_to_string(raw_char_array: &[c_char]) -> String {
     let raw_string = unsafe {
@@ -72,5 +77,30 @@ impl AllocatedImage {
         allocator
             .destroy_image(self.image, &self.allocation)
             .expect("failed to deallocate image");
+    }
+}
+
+pub struct SwapchainDescriptor {
+    pub format: vk::Format,
+    pub extent: vk::Extent2D,
+    pub present_mode: vk::PresentModeKHR,
+    pub frames_in_flight: u32,
+}
+
+impl VulkanFrom<&bevy_window::Window> for SwapchainDescriptor {
+    fn from(window: &bevy_window::Window) -> Self {
+        SwapchainDescriptor {
+            format: TextureFormat::default().vulkan_into(),
+            extent: vk::Extent2D {
+                width: window.physical_width(),
+                height: window.physical_height(),
+            },
+            present_mode: if window.vsync() {
+                vk::PresentModeKHR::FIFO
+            } else {
+                vk::PresentModeKHR::IMMEDIATE
+            },
+            frames_in_flight: 3,
+        }
     }
 }

@@ -1,11 +1,13 @@
 use std::{ops::Range, sync::Arc};
+use std::borrow::Cow;
+use std::ffi::CString;
 
+use ash::{
+    Device,
+    Entry, extensions::khr::{Surface, Win32Surface}, Instance, vk,
+};
 use ash::extensions::khr::Swapchain;
 use ash::version::DeviceV1_0;
-use ash::{
-    extensions::khr::{Surface, Win32Surface},
-    vk, Device, Entry, Instance,
-};
 
 use bevy_asset::{Assets, Handle, HandleUntyped};
 use bevy_render::{
@@ -17,14 +19,13 @@ use bevy_render::{
     shader::{glsl_to_spirv, Shader, ShaderError, ShaderSource},
     texture::{SamplerDescriptor, TextureDescriptor},
 };
+use bevy_render::pipeline::BindGroupDescriptor;
 use bevy_utils::tracing::*;
 use bevy_window::{Window, WindowId};
 
-use crate::renderer::SwapchainSupportDetails;
-use crate::vulkan_types::AllocatedImage;
-use crate::{
-    vulkan_renderer::QueueFamiliesIndices, vulkan_resources::VulkanResources, VulkanRenderer,
-};
+use crate::{QueueFamiliesIndices, vulkan_resources::VulkanResources, VulkanRenderer};
+use crate::vulkan_type_converter::VulkanInto;
+use crate::vulkan_types::{AllocatedImage, SwapchainDescriptor};
 
 pub const BIND_BUFFER_ALIGNMENT: usize = 256;
 pub const TEXTURE_ALIGNMENT: usize = 256;
@@ -76,6 +77,7 @@ pub struct VulkanRenderResourceContext {
     pub swapchain_loader: Swapchain,
 
     pub graphics_queue: vk::Queue,
+    pub queue_indices: QueueFamiliesIndices,
     pub command_pool: vk::CommandPool,
     frame_sync: Vec<FrameSync>,
 
@@ -89,6 +91,7 @@ impl VulkanRenderResourceContext {
         let device = renderer.device.clone();
         let physical_device = renderer.physical_device.clone();
         let graphics_queue = renderer.graphics_queue;
+        let queue_indices = renderer.queue_indices;
 
         let allocator = create_vulkan_allocator(&device, &instance, *physical_device);
         let allocator = Arc::new(allocator);
@@ -111,6 +114,7 @@ impl VulkanRenderResourceContext {
             surface_loader,
             swapchain_loader,
             graphics_queue,
+            queue_indices,
             command_pool,
             frame_sync,
             resources,
@@ -121,16 +125,59 @@ impl VulkanRenderResourceContext {
         let mut window_surfaces = self.resources.window_surfaces.write();
         window_surfaces.insert(window_id, surface);
     }
+
+    fn create_bind_group_layout(&self, _descriptor: &BindGroupDescriptor) {}
+
+    fn try_next_swapchain_texture(&self, _window_id: bevy_window::WindowId) -> Option<TextureId> {
+        // let mut window_swapchains = self.resources.window_swapchains.write();
+        // let mut swapchains_frames = self.resources.swapchain_image_views.write();
+        //
+        // let mut window_swapchain = window_swapchains.get_mut(&window_id).unwrap();
+        None
+    }
 }
 
 impl RenderResourceContext for VulkanRenderResourceContext {
-    fn create_swap_chain(&self, _window: &Window) {
-        warn!("create_swap_chain not implemented")
+    fn create_swap_chain(&self, window: &Window) {
+        let surfaces = self.resources.window_surfaces.read();
+        let mut window_swapchains = self.resources.window_swapchains.write();
+
+        let swapchain_descriptor: SwapchainDescriptor = window.vulkan_into();
+        let surface = surfaces
+            .get(&window.id())
+            .expect("No surface found for window.");
+
+        let device_supports_surface = unsafe {
+            self.surface_loader
+                .get_physical_device_surface_support(
+                    *self.physical_device,
+                    self.queue_indices.graphics_index,
+                    *surface,
+                )
+                .unwrap()
+        };
+
+        if !device_supports_surface {
+            panic!("Device does not support surface")
+        }
+
+        let swapchain = create_swapchain(
+            &self.swapchain_loader,
+            *surface,
+            &swapchain_descriptor,
+            None,
+        );
+
+
+        window_swapchains.insert(window.id(), swapchain);
     }
 
-    fn next_swap_chain_texture(&self, _window: &Window) -> TextureId {
-        warn!("next_swap_chain_texture not implemented");
-        TextureId::new()
+    fn next_swap_chain_texture(&self, window: &Window) -> TextureId {
+        if let Some(texture_id) = self.try_next_swapchain_texture(window.id()) {
+            texture_id
+        } else {
+            TextureId::new()
+        }
     }
 
     fn drop_swap_chain_texture(&self, _render_resource: TextureId) {
@@ -147,13 +194,20 @@ impl RenderResourceContext for VulkanRenderResourceContext {
     }
 
     fn create_texture(&self, _texture_descriptor: TextureDescriptor) -> TextureId {
-        warn!("create_texture not implemented");
-        TextureId::new()
+        let mut textures = self.resources.textures.write();
+
+        let id = TextureId::new();
+        let texture = id;
+
+        textures.insert(id, texture);
+        id
     }
 
-    fn create_buffer(&self, _buffer_info: BufferInfo) -> BufferId {
-        warn!("create_buffer not implemented");
-        BufferId::new()
+    fn create_buffer(&self, buffer_info: BufferInfo) -> BufferId {
+        let mut buffer_infos = self.resources.buffer_infos.write();
+        let id = BufferId::new();
+        buffer_infos.insert(id, buffer_info);
+        id
     }
 
     fn write_mapped_buffer(
@@ -182,17 +236,37 @@ impl RenderResourceContext for VulkanRenderResourceContext {
         warn!("unmap_buffer not implemented")
     }
 
-    fn create_buffer_with_data(&self, _buffer_info: BufferInfo, _data: &[u8]) -> BufferId {
-        warn!("create_buffer_with_data not implemented");
-        BufferId::new()
+    fn create_buffer_with_data(&self, buffer_info: BufferInfo, _data: &[u8]) -> BufferId {
+        let mut buffer_infos = self.resources.buffer_infos.write();
+        let id = BufferId::new();
+        buffer_infos.insert(id, buffer_info);
+        id
     }
 
-    fn create_shader_module(&self, _shader_handle: &Handle<Shader>, _shaders: &Assets<Shader>) {
-        todo!()
+    fn create_shader_module(&self, shader_handle: &Handle<Shader>, shaders: &Assets<Shader>) {
+        if self
+            .resources
+            .shader_modules
+            .read()
+            .get(&shader_handle)
+            .is_some()
+        {
+            return;
+        }
+        let shader = shaders.get(shader_handle).unwrap();
+        self.create_shader_module_from_source(shader_handle, shader);
     }
 
-    fn create_shader_module_from_source(&self, _shader_handle: &Handle<Shader>, _shader: &Shader) {
-        todo!()
+    fn create_shader_module_from_source(&self, shader_handle: &Handle<Shader>, shader: &Shader) {
+        let mut shader_modules = self.resources.shader_modules.write();
+        let spirv: Cow<[u32]> = shader.get_spirv(None).unwrap().into();
+        let create_info = vk::ShaderModuleCreateInfo::builder().code(&spirv);
+        let shader_module = unsafe {
+            self.device
+                .create_shader_module(&create_info, None)
+                .unwrap()
+        };
+        shader_modules.insert(shader_handle.clone_weak(), shader_module);
     }
 
     fn get_specialized_shader(
@@ -210,20 +284,26 @@ impl RenderResourceContext for VulkanRenderResourceContext {
         })
     }
 
-    fn remove_buffer(&self, _buffer: BufferId) {
-        todo!()
+    fn remove_buffer(&self, buffer: BufferId) {
+        let mut buffer_infos = self.resources.buffer_infos.write();
+        // let mut buffers = self.resources.buffers.write();
+        //
+        // buffers.remove(&buffer);
+        buffer_infos.remove(&buffer);
     }
 
-    fn remove_texture(&self, _texture: TextureId) {
-        todo!()
+    fn remove_texture(&self, texture: TextureId) {
+        let mut textures = self.resources.textures.write();
+
+        textures.remove(&texture);
     }
 
     fn remove_sampler(&self, _sampler: SamplerId) {
         todo!()
     }
 
-    fn get_buffer_info(&self, _buffer: BufferId) -> Option<BufferInfo> {
-        todo!()
+    fn get_buffer_info(&self, buffer: BufferId) -> Option<BufferInfo> {
+        self.resources.buffer_infos.read().get(&buffer).cloned()
     }
 
     fn get_aligned_uniform_size(&self, size: usize, dynamic: bool) -> usize {
@@ -240,33 +320,159 @@ impl RenderResourceContext for VulkanRenderResourceContext {
 
     fn set_asset_resource_untyped(
         &self,
-        _handle: HandleUntyped,
-        _render_resource: RenderResourceId,
-        _index: u64,
+        handle: HandleUntyped,
+        render_resource: RenderResourceId,
+        index: u64,
     ) {
-        warn!("set_asset_resource_untyped not implemented")
+        let mut asset_resources = self.resources.asset_resources.write();
+        asset_resources.insert((handle, index), render_resource);
     }
 
     fn get_asset_resource_untyped(
         &self,
-        _handle: HandleUntyped,
-        _index: u64,
+        handle: HandleUntyped,
+        index: u64,
     ) -> Option<RenderResourceId> {
-        warn!("get_asset_resource_untyped not implemented");
-        None
+        let asset_resources = self.resources.asset_resources.read();
+        asset_resources.get(&(handle, index)).cloned()
     }
 
-    fn remove_asset_resource_untyped(&self, _handle: HandleUntyped, _index: u64) {
-        todo!()
+    fn remove_asset_resource_untyped(&self, handle: HandleUntyped, index: u64) {
+        let mut asset_resources = self.resources.asset_resources.write();
+        asset_resources.remove(&(handle, index));
     }
 
     fn create_render_pipeline(
         &self,
-        _pipeline_handle: Handle<PipelineDescriptor>,
-        _pipeline_descriptor: &PipelineDescriptor,
-        _shaders: &Assets<Shader>,
+        pipeline_handle: Handle<PipelineDescriptor>,
+        pipeline_descriptor: &PipelineDescriptor,
+        shaders: &Assets<Shader>,
     ) {
-        warn!("create_render_pipeline not implemented");
+        if self
+            .resources
+            .render_pipelines
+            .read()
+            .get(&pipeline_handle)
+            .is_some()
+        {
+            return;
+        }
+
+        let layout = pipeline_descriptor.get_layout().unwrap();
+        for bind_group_descriptor in layout.bind_groups.iter() {
+            self.create_bind_group_layout(&bind_group_descriptor);
+        }
+
+        self.create_shader_module(&pipeline_descriptor.shader_stages.vertex, shaders);
+
+        if let Some(ref fragmente_handle) = pipeline_descriptor.shader_stages.fragment {
+            self.create_shader_module(fragmente_handle, shaders)
+        }
+
+        let shader_modules = self.resources.shader_modules.read();
+        let vertex_shader_module = shader_modules
+            .get(&pipeline_descriptor.shader_stages.vertex)
+            .unwrap();
+
+        let fragment_shader_module = pipeline_descriptor
+            .shader_stages
+            .fragment
+            .as_ref()
+            .map(|fragment_handle| shader_modules.get(fragment_handle).unwrap());
+
+        let shader_entry_point = CString::new("main").unwrap();
+        let pipeline_shader_stages = [
+            vk::PipelineShaderStageCreateInfo::builder()
+                .stage(vk::ShaderStageFlags::VERTEX)
+                .module(*vertex_shader_module)
+                .name(&shader_entry_point)
+                .build(),
+            vk::PipelineShaderStageCreateInfo::builder()
+                .stage(vk::ShaderStageFlags::FRAGMENT)
+                .module(*fragment_shader_module.unwrap())
+                .name(&shader_entry_point)
+                .build(),
+        ];
+
+        let pipeline_layout = {
+            let create_info = vk::PipelineLayoutCreateInfo::builder().build();
+            unsafe { self.device.create_pipeline_layout(&create_info, None) }.unwrap()
+        };
+
+        let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::builder();
+
+        let input_assembly_info = vk::PipelineInputAssemblyStateCreateInfo::builder()
+            .topology(vk::PrimitiveTopology::TRIANGLE_LIST);
+
+        let viewport_info = vk::PipelineViewportStateCreateInfo::builder()
+            .viewport_count(1)
+            .scissor_count(1);
+        let rasterization_info = vk::PipelineRasterizationStateCreateInfo::builder()
+            .depth_clamp_enable(false)
+            .rasterizer_discard_enable(false)
+            .polygon_mode(vk::PolygonMode::FILL)
+            .cull_mode(vk::CullModeFlags::BACK)
+            .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
+            .depth_bias_enable(false)
+            .line_width(1.0);
+
+        let stencil_op = vk::StencilOpState::builder()
+            .fail_op(vk::StencilOp::KEEP)
+            .pass_op(vk::StencilOp::KEEP)
+            .compare_op(vk::CompareOp::ALWAYS)
+            .build();
+        let depth_stencil_info = vk::PipelineDepthStencilStateCreateInfo::builder()
+            .depth_test_enable(true)
+            .depth_write_enable(true)
+            .depth_compare_op(vk::CompareOp::LESS_OR_EQUAL)
+            .depth_bounds_test_enable(false)
+            .stencil_test_enable(false)
+            .front(stencil_op)
+            .back(stencil_op);
+        let color_blend_attachments = [vk::PipelineColorBlendAttachmentState::builder()
+            .color_write_mask(
+                vk::ColorComponentFlags::R
+                    | vk::ColorComponentFlags::G
+                    | vk::ColorComponentFlags::B
+                    | vk::ColorComponentFlags::A,
+            )
+            .build()];
+        let color_blend_info =
+            vk::PipelineColorBlendStateCreateInfo::builder().attachments(&color_blend_attachments);
+
+        let dynamic_states = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
+        let dynamic_state_info =
+            vk::PipelineDynamicStateCreateInfo::builder().dynamic_states(&dynamic_states);
+
+        let multisample_info = vk::PipelineMultisampleStateCreateInfo::builder()
+            .rasterization_samples(vk::SampleCountFlags::TYPE_1);
+
+        let mut render_pass = self.resources.render_passes.write();
+        *render_pass = create_default_render_pass(&self.device, vk::Format::B8G8R8A8_SRGB);
+
+        let pipeline_create_info = vk::GraphicsPipelineCreateInfo::builder()
+            .stages(&pipeline_shader_stages)
+            .vertex_input_state(&vertex_input_state)
+            .input_assembly_state(&input_assembly_info)
+            .viewport_state(&viewport_info)
+            .rasterization_state(&rasterization_info)
+            .multisample_state(&multisample_info)
+            .depth_stencil_state(&depth_stencil_info)
+            .color_blend_state(&color_blend_info)
+            .dynamic_state(&dynamic_state_info)
+            .layout(pipeline_layout)
+            .render_pass(*render_pass)
+            .subpass(0)
+            .build();
+
+        let graphics_pipeline = unsafe {
+            self.device
+                .create_graphics_pipelines(vk::PipelineCache::null(), &[pipeline_create_info], None)
+                .unwrap()[0]
+        };
+
+        let mut graphics_pipelines = self.resources.render_pipelines.write();
+        graphics_pipelines.insert(pipeline_handle, graphics_pipeline);
     }
 
     fn bind_group_descriptor_exists(
@@ -314,23 +520,21 @@ fn create_vulkan_allocator(
 fn create_swapchain(
     swapchain_loader: &Swapchain,
     surface: vk::SurfaceKHR,
-    swapchain_config: &SwapchainSupportDetails,
+    swapchain_descriptor: &SwapchainDescriptor,
     old_swapchain: Option<vk::SwapchainKHR>,
-    preferred_dimensions: [u32; 2],
 ) -> vk::SwapchainKHR {
-    let props = swapchain_config.get_ideal_swapchain_properties(preferred_dimensions);
     let swapchain_create_info = vk::SwapchainCreateInfoKHR::builder()
         .surface(surface)
-        .min_image_count(3)
-        .image_format(props.format.format)
+        .min_image_count(swapchain_descriptor.frames_in_flight)
+        .image_format(swapchain_descriptor.format)
         .image_color_space(vk::ColorSpaceKHR::SRGB_NONLINEAR)
-        .image_extent(props.extent)
+        .image_extent(swapchain_descriptor.extent)
         .image_array_layers(1)
         .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT)
         .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
         .pre_transform(vk::SurfaceTransformFlagsKHR::IDENTITY)
         .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
-        .present_mode(props.present_mode)
+        .present_mode(swapchain_descriptor.present_mode)
         .clipped(true);
 
     let swapchain_create_info = match old_swapchain {

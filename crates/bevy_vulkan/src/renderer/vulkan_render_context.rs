@@ -34,7 +34,6 @@ impl RenderContext for VulkanRenderContext {
         &mut self.render_resource_context
     }
 
-    #[allow(unused_variables)]
     fn copy_buffer_to_buffer(
         &mut self,
         source_buffer: BufferId,
@@ -70,7 +69,7 @@ impl RenderContext for VulkanRenderContext {
         _destination_bytes_per_row: u32,
         _size: Extent3d,
     ) {
-        todo!()
+        warn!("copy_texture_to_buffer not implemented")
     }
 
     fn copy_texture_to_texture(
@@ -83,7 +82,7 @@ impl RenderContext for VulkanRenderContext {
         _destination_mip_level: u32,
         _size: Extent3d,
     ) {
-        todo!()
+        warn!("copy_texture_to_texture not implemented")
     }
 
     #[allow(unused_variables)]

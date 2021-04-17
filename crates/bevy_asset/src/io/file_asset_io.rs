@@ -48,14 +48,10 @@ impl AssetIo for FileAssetIo {
             let full_path = self.root_path.join(path);
             match File::open(&full_path) {
                 Ok(mut file) => {
-                    println!("path: {:?}", path);
-                    println!("full path: {:?}", full_path.as_path());
                     file.read_to_end(&mut bytes)?;
                 }
                 Err(e) => {
                     return if e.kind() == std::io::ErrorKind::NotFound {
-                        println!("path: {:?}", path);
-                        println!("full path: {:?}", full_path.as_path());
                         Err(AssetIoError::NotFound(full_path))
                     } else {
                         Err(e.into())
