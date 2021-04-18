@@ -1,15 +1,16 @@
-use std::{ops::Range, sync::Arc};
 use std::borrow::Cow;
 use std::ffi::CString;
+use std::{ops::Range, sync::Arc};
 
-use ash::{
-    Device,
-    Entry, extensions::khr::{Surface, Win32Surface}, Instance, vk,
-};
 use ash::extensions::khr::Swapchain;
 use ash::version::DeviceV1_0;
+use ash::{
+    extensions::khr::{Surface, Win32Surface},
+    vk, Device, Instance,
+};
 
 use bevy_asset::{Assets, Handle, HandleUntyped};
+use bevy_render::pipeline::BindGroupDescriptor;
 use bevy_render::{
     pipeline::{BindGroupDescriptorId, PipelineDescriptor},
     renderer::{
@@ -19,13 +20,12 @@ use bevy_render::{
     shader::{glsl_to_spirv, Shader, ShaderError, ShaderSource},
     texture::{SamplerDescriptor, TextureDescriptor},
 };
-use bevy_render::pipeline::BindGroupDescriptor;
 use bevy_utils::tracing::*;
 use bevy_window::{Window, WindowId};
 
-use crate::{QueueFamiliesIndices, vulkan_resources::VulkanResources, VulkanRenderer};
 use crate::vulkan_type_converter::VulkanInto;
 use crate::vulkan_types::{AllocatedImage, SwapchainDescriptor};
+use crate::{vulkan_resources::VulkanResources, QueueFamiliesIndices, VulkanRenderer};
 
 pub const BIND_BUFFER_ALIGNMENT: usize = 256;
 pub const TEXTURE_ALIGNMENT: usize = 256;
@@ -128,12 +128,31 @@ impl VulkanRenderResourceContext {
 
     fn create_bind_group_layout(&self, _descriptor: &BindGroupDescriptor) {}
 
-    fn try_next_swapchain_texture(&self, _window_id: bevy_window::WindowId) -> Option<TextureId> {
-        // let mut window_swapchains = self.resources.window_swapchains.write();
-        // let mut swapchains_frames = self.resources.swapchain_image_views.write();
-        //
-        // let mut window_swapchain = window_swapchains.get_mut(&window_id).unwrap();
-        None
+    fn try_next_swapchain_texture(&self, window_id: bevy_window::WindowId) -> Option<TextureId> {
+        let mut window_swapchains = self.resources.window_swapchains.write();
+        let mut swapchains_frames = self.resources.swapchain_image_views.write();
+
+        let swapchain = window_swapchains.get_mut(&window_id).unwrap();
+
+        let image_index;
+        let next_swapchain_image = unsafe {
+            self.swapchain_loader.acquire_next_image(
+                *swapchain,
+                u64::MAX,
+                vk::Semaphore::null(),
+                vk::Fence::null(),
+            )
+        };
+
+        match next_swapchain_image {
+            Ok((index, _is_suboptimal)) => image_index = index as usize,
+            Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => return None,
+            Err(error) => panic!("Failed to acquire swapchain image: {}", error),
+        }
+
+        let id = TextureId::new();
+
+        Some(id)
     }
 }
 
@@ -168,7 +187,6 @@ impl RenderResourceContext for VulkanRenderResourceContext {
             None,
         );
 
-
         window_swapchains.insert(window.id(), swapchain);
     }
 
@@ -176,7 +194,13 @@ impl RenderResourceContext for VulkanRenderResourceContext {
         if let Some(texture_id) = self.try_next_swapchain_texture(window.id()) {
             texture_id
         } else {
-            TextureId::new()
+            self.resources
+                .window_swapchains
+                .write()
+                .remove(&window.id());
+            self.create_swap_chain(window);
+            self.try_next_swapchain_texture(window.id())
+                .expect("Failed to acquire next swapchain texture")
         }
     }
 
@@ -365,8 +389,8 @@ impl RenderResourceContext for VulkanRenderResourceContext {
 
         self.create_shader_module(&pipeline_descriptor.shader_stages.vertex, shaders);
 
-        if let Some(ref fragmente_handle) = pipeline_descriptor.shader_stages.fragment {
-            self.create_shader_module(fragmente_handle, shaders)
+        if let Some(ref fragment_handle) = pipeline_descriptor.shader_stages.fragment {
+            self.create_shader_module(fragment_handle, shaders)
         }
 
         let shader_modules = self.resources.shader_modules.read();

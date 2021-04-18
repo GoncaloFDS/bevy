@@ -4,6 +4,7 @@ use bevy_render::{
     render_graph::{Edge, NodeId, ResourceSlots, StageBorrow},
     renderer::RenderResourceContext,
 };
+use bevy_utils::tracing::*;
 use bevy_utils::HashMap;
 use parking_lot::RwLock;
 use std::sync::Arc;
@@ -97,6 +98,7 @@ impl WgpuRenderGraphExecutor {
                     command_buffers.push(command_buffer);
                 }
             }
+            debug!("command_buffers: {:?}", command_buffers);
 
             queue.submit(command_buffers.drain(..));
         }

@@ -4,7 +4,7 @@ use bevy_ecs::{
     world::World,
 };
 use bevy_render::{
-    renderer::{RenderResourceContext, shared_buffers_update_system, SharedBuffers},
+    renderer::{shared_buffers_update_system, RenderResourceContext, SharedBuffers},
     RenderStage,
 };
 use renderer::VulkanRenderResourceContext;

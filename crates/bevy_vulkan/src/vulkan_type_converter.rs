@@ -11,8 +11,8 @@ pub trait VulkanInto<U> {
 }
 
 impl<T, U> VulkanInto<U> for T
-    where
-        U: VulkanFrom<T>,
+where
+    U: VulkanFrom<T>,
 {
     fn vulkan_into(self) -> U {
         U::from(self)

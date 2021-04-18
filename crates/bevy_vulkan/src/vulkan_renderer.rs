@@ -4,9 +4,9 @@ use std::{
 };
 
 use ash::{
-    Device,
-    Entry,
-    extensions::{ext::DebugUtils, khr::Swapchain}, Instance, version::{DeviceV1_0, EntryV1_0, InstanceV1_0}, vk,
+    extensions::{ext::DebugUtils, khr::Swapchain},
+    version::{DeviceV1_0, EntryV1_0, InstanceV1_0},
+    vk, Device, Entry, Instance,
 };
 
 use bevy_app::{Events, ManualEventReader};
@@ -106,7 +106,7 @@ impl VulkanRenderer {
 
             //execute stages
             let graph_executor = VulkanRenderGraphExecutor {
-                max_thread_count: 2,
+                max_thread_count: 1,
             };
             graph_executor.execute(
                 world,

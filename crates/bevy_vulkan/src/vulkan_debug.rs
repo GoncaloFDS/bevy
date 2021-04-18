@@ -1,8 +1,8 @@
 use std::borrow::Cow;
 use std::ffi::{CStr, CString};
 
-use ash::{Entry, Instance, version::EntryV1_0, vk};
 use ash::extensions::ext::DebugUtils;
+use ash::{version::EntryV1_0, vk, Entry, Instance};
 
 use bevy_utils::tracing::*;
 

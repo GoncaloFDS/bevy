@@ -245,6 +245,7 @@ where
             &render_resource_bindings,
             &mut |render_pass| {
             for render_command in commands.drain(..) {
+                debug!("render_command: {:?}", render_command);
                 match render_command {
                     RenderCommand::SetPipeline { pipeline } => {
                         if draw_state.is_pipeline_set(pipeline.clone_weak()) {

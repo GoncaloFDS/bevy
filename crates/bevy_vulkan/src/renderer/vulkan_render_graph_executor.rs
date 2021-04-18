@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use ash::version::DeviceV1_0;
 use ash::vk;
 use parking_lot::RwLock;
 
@@ -8,6 +9,7 @@ use bevy_render::{
     render_graph::{Edge, NodeId, ResourceSlots, StageBorrow},
     renderer::RenderResourceContext,
 };
+use bevy_utils::tracing::*;
 use bevy_utils::HashMap;
 
 use super::{VulkanRenderContext, VulkanRenderResourceContext};
@@ -47,10 +49,11 @@ impl VulkanRenderGraphExecutor {
                 let sender = sender.clone();
                 let world = &*world;
                 actual_thread_count += 1;
+                let device = device.clone();
                 let render_resource_context = render_resource_context.clone();
                 let node_outputs = node_outputs.clone();
                 // s.spawn(move |_| {
-                let mut render_context = VulkanRenderContext::new(render_resource_context);
+                let mut render_context = VulkanRenderContext::new(device, render_resource_context);
                 for job in jobs_chunk.iter_mut() {
                     for node_state in job.node_states.iter_mut() {
                         // bind inputs from connected node outputs
@@ -101,6 +104,21 @@ impl VulkanRenderGraphExecutor {
                 }
             }
 
+            debug!("command_buffers: {:?}", command_buffers);
+            let submit_info = vk::SubmitInfo::builder()
+                .wait_dst_stage_mask(&[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT])
+                .command_buffers(command_buffers.as_slice())
+                .wait_semaphores(&[])
+                .signal_semaphores(&[])
+                .build();
+
+            unsafe {
+                device
+                    .queue_submit(*queue, &[submit_info], vk::Fence::null())
+                    .unwrap()
+            }
+
+            // unsafe {device.queue_submit() }
             // queue.submit(command_buffers.drain(..));
         }
     }

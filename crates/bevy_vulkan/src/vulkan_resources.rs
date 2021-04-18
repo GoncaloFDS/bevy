@@ -1,18 +1,34 @@
 use std::sync::Arc;
 
-use ash::{Device, extensions::khr::Surface, vk};
-use parking_lot::RwLock;
+use ash::{extensions::khr::Surface, vk, Device};
+use parking_lot::{RwLock, RwLockReadGuard};
 
 use bevy_asset::{Handle, HandleUntyped};
+use bevy_render::renderer::{BufferId, BufferInfo};
+use bevy_render::texture::TextureDescriptor;
 use bevy_render::{
     pipeline::PipelineDescriptor,
     renderer::{RenderResourceId, TextureId},
     shader::Shader,
 };
-use bevy_render::renderer::{BufferId, BufferInfo};
-use bevy_render::texture::TextureDescriptor;
 use bevy_utils::HashMap;
 use bevy_window::WindowId;
+
+pub struct VulkanResourcesReadLock<'a> {
+    pub render_pipelines: RwLockReadGuard<'a, HashMap<Handle<PipelineDescriptor>, vk::Pipeline>>,
+}
+
+impl<'a> VulkanResourcesReadLock<'a> {
+    pub fn refs(&'a self) -> VulkanResourceRefs<'a> {
+        VulkanResourceRefs {
+            render_pipelines: &self.render_pipelines,
+        }
+    }
+}
+
+pub struct VulkanResourceRefs<'a> {
+    pub render_pipelines: &'a HashMap<Handle<PipelineDescriptor>, vk::Pipeline>,
+}
 
 #[derive(Clone)]
 pub struct VulkanResources {
@@ -51,6 +67,12 @@ impl VulkanResources {
             buffer_infos: Default::default(),
             texture_descriptors: Default::default(),
             asset_resources: Default::default(),
+        }
+    }
+
+    pub fn read(&self) -> VulkanResourcesReadLock {
+        VulkanResourcesReadLock {
+            render_pipelines: self.render_pipelines.read(),
         }
     }
 }

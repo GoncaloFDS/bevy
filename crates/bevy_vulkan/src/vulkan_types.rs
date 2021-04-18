@@ -4,7 +4,6 @@ use std::os::raw::c_char;
 use ash::vk;
 
 use bevy_render::texture::TextureFormat;
-use bevy_window::Window;
 
 use crate::vulkan_type_converter::{VulkanFrom, VulkanInto};
 
